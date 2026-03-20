@@ -212,17 +212,23 @@ class _HomeScreenState extends State<HomeScreen> {
                       setState(() {});
                     }
                   },
-                  background: Container(
-                    alignment: Alignment.centerLeft,
-                    padding: const EdgeInsets.only(left: 24),
-                    color: const Color(0xFF7B2FF2),
-                    child: const Icon(Icons.check, color: Colors.white, size: 32),
+                  background: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Container(
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.only(left: 24),
+                      color: const Color(0xFF7B2FF2),
+                      child: const Icon(Icons.check, color: Colors.white, size: 32),
+                    ),
                   ),
-                  secondaryBackground: Container(
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 24),
-                    color: const Color(0xFFFF4D4D),
-                    child: const Icon(Icons.close, color: Colors.white, size: 32),
+                  secondaryBackground: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 24),
+                      color: const Color(0xFFFF4D4D),
+                      child: const Icon(Icons.close, color: Colors.white, size: 32),
+                    ),
                   ),
                   child: Container(
                     width: cardWidth,
