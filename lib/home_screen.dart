@@ -61,8 +61,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 16),
             // Contenedor principal estilo tarjeta (blanco con sombra)
             Expanded(
+              flex: 2, // Hacer el área más grande
               child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8).copyWith(bottom: 24),
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4).copyWith(bottom: 12), // Menos margen
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(24),
@@ -182,6 +183,13 @@ class _HomeScreenState extends State<HomeScreen> {
       provider.loadMoreIfNeeded();
     }
 
+    // Metadata de la imagen
+    String assetLabel = asset.title ?? asset.id;
+    String assetPath = asset.relativePath ?? '';
+    String assetDate = asset.createDateTime != null
+        ? '${asset.createDateTime.year}-${asset.createDateTime.month.toString().padLeft(2, '0')}-${asset.createDateTime.day.toString().padLeft(2, '0')}'
+        : '';
+
     return Column(
       children: [
         Expanded(
@@ -195,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   key: ValueKey('dismiss-' + asset.id),
                   direction: DismissDirection.horizontal,
                   onDismissed: (direction) async {
-                    final shouldDelete = direction == DismissDirection.endToStart; // hacia la izquierda
+                    final shouldDelete = direction == DismissDirection.startToEnd; // hacia la derecha
                     if (shouldDelete) {
                       setState(() {
                         deletedCount++;
@@ -217,8 +225,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Container(
                       alignment: Alignment.centerLeft,
                       padding: const EdgeInsets.only(left: 24),
-                      color: const Color(0xFF7B2FF2),
-                      child: const Icon(Icons.check, color: Colors.white, size: 32),
+                      color: const Color(0xFFFF4D4D),
+                      child: const Icon(Icons.close, color: Colors.white, size: 32),
                     ),
                   ),
                   secondaryBackground: ClipRRect(
@@ -226,8 +234,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Container(
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.only(right: 24),
-                      color: const Color(0xFFFF4D4D),
-                      child: const Icon(Icons.close, color: Colors.white, size: 32),
+                      color: const Color(0xFF7B2FF2),
+                      child: const Icon(Icons.check, color: Colors.white, size: 32),
                     ),
                   ),
                   child: Container(
@@ -243,24 +251,109 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
-                      child: TweenAnimationBuilder<double>(
-                        key: ValueKey('fade-' + asset.id),
-                        tween: Tween(begin: 0, end: 1),
-                        duration: const Duration(milliseconds: 220),
-                        builder: (context, value, child) => Opacity(
-                          opacity: value,
-                          child: child,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(24),
+                            child: TweenAnimationBuilder<double>(
+                              key: ValueKey('fade-' + asset.id),
+                              tween: Tween(begin: 0, end: 1),
+                              duration: const Duration(milliseconds: 220),
+                              builder: (context, value, child) => Opacity(
+                                opacity: value,
+                                child: child,
+                              ),
+                              child: bytes != null
+                                  ? Container(
+                                      color: Colors.grey[200], // Fondo para fotos no cuadradas
+                                      child: Image.memory(
+                                        bytes,
+                                        fit: BoxFit.contain,
+                                        gaplessPlayback: true,
+                                      ),
+                                    )
+                                  : Container(color: Colors.grey[300]),
+                            ),
+                          ),
                         ),
-                        child: bytes != null
-                            ? Image.memory(
-                                bytes,
-                                fit: BoxFit.cover,
-                                gaplessPlayback: true,
-                              )
-                            : Container(color: Colors.grey[300]),
-                      ),
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.info_outline, color: Color(0xFF7B2FF2), size: 28),
+                              tooltip: 'Ver metadata',
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    backgroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                    ),
+                                    title: const Text(
+                                      'Información de la foto',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                        color: Color(0xFF7B2FF2),
+                                      ),
+                                    ),
+                                    content: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Nombre: $assetLabel',
+                                          style: const TextStyle(fontSize: 15, color: Colors.black),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Ubicación: $assetPath',
+                                          style: const TextStyle(fontSize: 15, color: Colors.black),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Fecha: $assetDate',
+                                          style: const TextStyle(fontSize: 15, color: Colors.black),
+                                        ),
+                                      ],
+                                    ),
+                                    actionsAlignment: MainAxisAlignment.center,
+                                    actions: [
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF7B2FF2),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(24),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                                          elevation: 0,
+                                        ),
+                                        child: const Text(
+                                          'Cerrar',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -524,7 +617,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _checkDeleteLimit(GalleryProvider provider) {
-    if (provider.pendingDeletePhotos.length == 3) {
+    if (provider.pendingDeletePhotos.length == 30) {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(

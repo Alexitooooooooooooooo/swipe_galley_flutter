@@ -1,7 +1,7 @@
 name: swipegallery
 description: "Organiza tu galería de manera rápida y divertida."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.2
 
 environment:
   sdk: ^3.11.3
