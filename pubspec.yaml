@@ -1,0 +1,34 @@
+name: swipegallery
+description: "Organiza tu galería de manera rápida y divertida."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  photo_manager: ^3.9.0
+  # flutter_tindercard eliminado por incompatibilidad null safety
+  flutter_card_swiper: ^7.2.0  # Alternativa compatible null safety
+  path_provider: ^2.1.1
+  permission_handler: ^11.0.1
+  provider: ^6.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/splash.png
+    - assets/logo.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo.png"
