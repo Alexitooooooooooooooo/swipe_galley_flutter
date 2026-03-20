@@ -13,6 +13,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   Future<void> _handlePress() async {
     setState(() { isLoading = true; });
+    await Future.delayed(const Duration(seconds: 2)); // Delay para mostrar el cargando
     final status = await Permission.photos.request();
     if (status.isGranted) {
       Navigator.pushReplacement(
@@ -94,26 +95,38 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
               child: SizedBox(
                 width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: isLoading ? null : _handlePress,
-                  icon: isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(Icons.arrow_forward, color: Colors.white),
-                  label: Text(
-                    isLoading ? 'Cargando...' : 'Empezar',
-                    style: const TextStyle(color: Colors.white),
+                child: ElevatedButton(
+                  onPressed: isLoading ? () {} : _handlePress,
+                  style: ButtonStyle(
+                    backgroundColor: MaterialStateProperty.resolveWith<Color>((states) {
+                      if (states.contains(MaterialState.disabled)) {
+                        return const Color(0xFF7B2FF2); // Morado
+                      }
+                      return const Color(0xFF7B2FF2);
+                    }),
+                    padding: MaterialStateProperty.all(const EdgeInsets.symmetric(vertical: 16)),
+                    textStyle: MaterialStateProperty.all(const TextStyle(fontSize: 18)),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF7B2FF2), // Morado
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    textStyle: const TextStyle(fontSize: 18),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.arrow_forward, color: Colors.white, size: 18),
+                      const SizedBox(width: 12),
+                      Text(
+                        isLoading ? 'Cargando...' : 'Empezar',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                 ),
               ),
