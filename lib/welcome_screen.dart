@@ -15,8 +15,25 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Future<void> _handlePress() async {
     setState(() { isLoading = true; });
     await Future.delayed(const Duration(seconds: 2)); // Delay para mostrar el cargando
-    final PermissionState permissionState = await PhotoManager.requestPermissionExtend();
-    if (permissionState.hasAccess) {
+    final PermissionState permissionState = await PhotoManager.requestPermissionExtend(
+      requestOption: const PermissionRequestOption(
+        androidPermission: AndroidPermission(
+          type: RequestType.image,
+          mediaLocation: false,
+        ),
+      ),
+    );
+    bool canContinue = permissionState.hasAccess;
+
+    if (!canContinue) {
+      final albums = await PhotoManager.getAssetPathList(
+        type: RequestType.image,
+        hasAll: true,
+      );
+      canContinue = albums.isNotEmpty;
+    }
+
+    if (canContinue) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),

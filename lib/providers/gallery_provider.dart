@@ -14,11 +14,14 @@ class GalleryProvider with ChangeNotifier {
   int _totalCount = 0;
   Set<int> _usedIndexes = {};
   int _batchSize = 50;
-  AssetPathEntity? _allAlbum;
+  List<AssetPathEntity> _albums = [];
+  AssetPathEntity? _currentAlbum;
 
   List<AssetEntity> get images => _images;
   List<AssetEntity> get pendingDeletePhotos => _pendingDeletePhotos;
   bool get isLoading => _isLoading;
+  List<AssetPathEntity> get albums => _albums;
+  AssetPathEntity? get currentAlbum => _currentAlbum;
 
   Uint8List? getThumbnailFor(AssetEntity asset) => _thumbnailById[asset.id];
 
@@ -27,21 +30,34 @@ class GalleryProvider with ChangeNotifier {
   Future<void> loadImages() async {
     _isLoading = true;
     notifyListeners();
-    final PermissionState ps = await PhotoManager.requestPermissionExtend();
-    if (ps.hasAccess) {
-      // Obtener solo el álbum "All"
-      List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
-        type: RequestType.image,
-        hasAll: true,
-      );
+    final PermissionState ps = await PhotoManager.requestPermissionExtend(
+      requestOption: const PermissionRequestOption(
+        androidPermission: AndroidPermission(
+          type: RequestType.image,
+          mediaLocation: false,
+        ),
+      ),
+    );
+
+    final albums = await PhotoManager.getAssetPathList(
+      type: RequestType.image,
+      hasAll: true,
+    );
+
+    if (ps.hasAccess || albums.isNotEmpty) {
+      _usedIndexes.clear();
+      _pendingDeletePhotos.clear();
+      _history.clear();
+      _images.clear();
+      _albums = albums;
+
       if (albums.isNotEmpty) {
-        _allAlbum = albums.first;
-        _totalCount = await _allAlbum!.assetCountAsync;
-        _usedIndexes.clear();
-        _pendingDeletePhotos.clear();
-        _history.clear();
-        _images.clear();
+        _currentAlbum = albums.first;
+        _totalCount = await _currentAlbum!.assetCountAsync;
         await _addRandomBatch();
+      } else {
+        _currentAlbum = null;
+        _totalCount = 0;
       }
     } else {
       await PhotoManager.openSetting();
@@ -50,9 +66,26 @@ class GalleryProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setAlbum(AssetPathEntity album) async {
+    _isLoading = true;
+    notifyListeners();
+
+    _currentAlbum = album;
+    _usedIndexes.clear();
+    // No limpiamos _pendingDeletePhotos para que el usuario no pierda lo que ya seleccionó para borrar
+    _history.clear();
+    _images.clear();
+
+    _totalCount = await _currentAlbum!.assetCountAsync;
+    await _addRandomBatch();
+
+    _isLoading = false;
+    notifyListeners();
+  }
+
   // Cargar un batch de fotos aleatorias que no hayan salido
   Future<void> _addRandomBatch() async {
-    if (_allAlbum == null || _totalCount == 0) return;
+    if (_currentAlbum == null || _totalCount == 0) return;
     final availableIndexes = List<int>.generate(_totalCount, (i) => i).where((i) => !_usedIndexes.contains(i)).toList();
     if (availableIndexes.isEmpty) return;
     availableIndexes.shuffle();
@@ -71,7 +104,11 @@ class GalleryProvider with ChangeNotifier {
     for (var range in ranges) {
       int start = range.first;
       int end = range.last + 1;
-      final assets = await _allAlbum!.getAssetListRange(start: start, end: end);
+      var assets = await _currentAlbum!.getAssetListRange(start: start, end: end);
+      
+      // Filtrar las fotos que ya están en la papelera ("A eliminar")
+      assets = assets.where((asset) => !_pendingDeletePhotos.any((p) => p.id == asset.id)).toList();
+      
       batch.addAll(assets);
     }
     batch.shuffle(); // Para que el orden siga random
@@ -86,7 +123,13 @@ class GalleryProvider with ChangeNotifier {
         _thumbnailById[asset.id] = null;
       }
     }
-    notifyListeners();
+    
+    // Si por casualidad todas las fotos de este batch ya estaban para eliminar y nos quedamos sin fotos, cargamos más automáticamente.
+    if (_images.isEmpty && _usedIndexes.length < _totalCount) {
+      await _addRandomBatch();
+    } else {
+      notifyListeners();
+    }
   }
 
   // Llamar esto cuando queden 5 o menos
@@ -100,8 +143,10 @@ class GalleryProvider with ChangeNotifier {
     final asset = _images[index];
     _history.add(_SwipeAction(asset, delete));
     if (delete) {
-      // Solo agregar al array de pendientes, no borrar aún
-      _pendingDeletePhotos.add(asset);
+      // Solo agregar al array de pendientes si no está ya, para evitar duplicados
+      if (!_pendingDeletePhotos.any((a) => a.id == asset.id)) {
+        _pendingDeletePhotos.add(asset);
+      }
     }
     // Sacar de la lista principal
     _images.removeAt(index);
@@ -118,6 +163,7 @@ class GalleryProvider with ChangeNotifier {
         print("Fotos eliminadas exitosamente");
       }
       _pendingDeletePhotos.clear();
+      _history.clear(); // Eliminar historial para que no se pueda hacer undo
       notifyListeners();
     } catch (e) {
       print("Error al borrar: $e");

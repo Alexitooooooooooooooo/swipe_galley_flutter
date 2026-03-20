@@ -42,19 +42,52 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           children: [
             const SizedBox(height: 16),
-            // Logo superior
-            Image.asset(
-              'assets/titulo.png',
-              height: 48,
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) => const Text(
-                'SWIPE\nGALERY',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF7B2FF2),
-                  height: 1.0,
+            // Logo superior y botón de ajustes
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/titulo.png',
+                      height: 48,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => const Text(
+                        'SWIPE\nGALERY',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF7B2FF2),
+                          height: 1.0,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.tune, color: Color(0xFF7B2FF2), size: 24),
+                          tooltip: 'Seleccionar Álbum',
+                          onPressed: () => _showAlbumSelectionModal(context, provider),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -672,5 +705,74 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
+  }
+
+  void _showAlbumSelectionModal(BuildContext context, GalleryProvider provider) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  'Seleccionar Álbum',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: provider.albums.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(32.0),
+                        child: Text('No hay álbumes disponibles'),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: provider.albums.length,
+                        itemBuilder: (context, index) {
+                          final album = provider.albums[index];
+                          final isSelected = album.id == provider.currentAlbum?.id;
+                          return ListTile(
+                            title: FutureBuilder<int>(
+                              future: album.assetCountAsync,
+                              builder: (context, snapshot) {
+                                final count = snapshot.data ?? 0;
+                                return Text(
+                                  '${album.name} ($count)',
+                                  style: TextStyle(
+                                    color: isSelected ? const Color(0xFF7B2FF2) : Colors.black87,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontSize: 16,
+                                  ),
+                                );
+                              },
+                            ),
+                            trailing: isSelected
+                                ? const Icon(Icons.check_circle, color: Color(0xFF7B2FF2))
+                                : null,
+                            onTap: () {
+                              provider.setAlbum(album);
+                              Navigator.pop(context);
+                            },
+                          );
+                        },
+                      ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
