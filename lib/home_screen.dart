@@ -177,6 +177,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final asset = provider.images.first;
     final bytes = provider.getThumbnailFor(asset);
 
+    // Cargar más si quedan 5 o menos
+    if (provider.images.length <= 5) {
+      provider.loadMoreIfNeeded();
+    }
+
     return Column(
       children: [
         Expanded(
@@ -198,6 +203,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                     await provider.handleSwipe(0, shouldDelete);
                     setState(() {});
+                    if (shouldDelete) {
+                      _checkDeleteLimit(provider);
+                    }
+                    // Cargar más si quedan 5 o menos después del swipe
+                    if (provider.images.length <= 5) {
+                      await provider.loadMoreIfNeeded();
+                      setState(() {});
+                    }
                   },
                   background: Container(
                     alignment: Alignment.centerLeft,
@@ -253,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            // Botón de deshacer (sin lógica aún)
+            // Botón de deshacer
             GestureDetector(
               onTap: () {
                 final provider = context.read<GalleryProvider>();
@@ -279,6 +292,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() {
                   deletedCount++;
                 });
+                _checkDeleteLimit(provider);
+                if (provider.images.length <= 5) {
+                  await provider.loadMoreIfNeeded();
+                  setState(() {});
+                }
               },
               child: Container(
                 width: 70,
@@ -296,6 +314,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (provider.images.isEmpty) return;
                 await provider.handleSwipe(0, false);
                 setState(() {});
+                if (provider.images.length <= 5) {
+                  await provider.loadMoreIfNeeded();
+                  setState(() {});
+                }
               },
               child: Container(
                 width: 70,
@@ -389,25 +411,167 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(16.0),
           child: SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () async {
-                await provider.confirmDeleteAll();
-                setState(() {
-                  _showDeleteView = false;
-                });
+            child: ElevatedButton.icon(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    backgroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    title: const Text(
+                      'Eliminar',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: Colors.black,
+                      ),
+                    ),
+                    content: Text(
+                      '¿Eliminar ${provider.pendingDeletePhotos.length} elementos seleccionados? Esta acción no se puede deshacer.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: Colors.black54,
+                        height: 1.3,
+                      ),
+                    ),
+                    actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 0),
+                    actions: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF5A6270),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: const Text(
+                                'Cancelar',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                await provider.confirmDeleteAll();
+                                setState(() {
+                                  _showDeleteView = false;
+                                });
+                              },
+                              icon: const Icon(Icons.delete_outline, color: Colors.white, size: 20),
+                              label: const Text(
+                                'Eliminar',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF4D4D),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                elevation: 0,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
               },
+              icon: const Icon(Icons.delete_outline, color: Colors.white, size: 22),
+              label: const Text(
+                'Eliminar',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFFF4D4D),
                 padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: const Text(
-                'Eliminar',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
               ),
             ),
           ),
         ),
       ],
     );
+  }
+
+  void _checkDeleteLimit(GalleryProvider provider) {
+    if (provider.pendingDeletePhotos.length == 3) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: const Text(
+            'Aviso de rendimiento',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: Colors.black,
+            ),
+          ),
+          content: const Text(
+            'Se recomienda ir a la papelera y eliminar las fotos definitivamente para mantener un rendimiento óptimo en la aplicación.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              color: Colors.black54,
+              height: 1.3,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 0),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+                label: const Text(
+                  'Continuar',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF7B2FF2),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  elevation: 0,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }
