@@ -179,17 +179,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     // Área del Swiper y las Fotos
                     Expanded(
-                      child: provider.isLoading
-                          ? const Center(child: CircularProgressIndicator())
-                          : _showDeleteView
+                      child: _showDeleteView
                               ? _buildDeleteGallery(provider)
+                              : provider.isLoading
+                                  ? const Center(child: CircularProgressIndicator())
                               : provider.images.isEmpty
-                                  ? const Center(
-                                      child: Text(
-                                        '¡No hay más fotos!',
-                                        style: TextStyle(color: Colors.black54, fontSize: 16),
-                                      ),
-                                    )
+                                  ? (provider.isBatchLoading || provider.hasMorePhotosToLoad)
+                                      ? const Center(child: CircularProgressIndicator())
+                                      : const Center(
+                                          child: Text(
+                                            '¡No hay más fotos!',
+                                            style: TextStyle(color: Colors.black54, fontSize: 16),
+                                          ),
+                                        )
                                   : _buildSwiperArea(provider),
                     ),
                   ],
@@ -203,6 +205,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSwiperArea(GalleryProvider provider) {
+    // Mostrar spinner si se está cargando lote y faltan fotos por cargar
+    if (provider.images.isEmpty && (provider.isBatchLoading || provider.hasMorePhotosToLoad)) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (provider.images.isEmpty) {
       return const Center(
         child: Text('No hay fotos disponibles'),
@@ -211,8 +217,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final asset = provider.images.first;
     final bytes = provider.getThumbnailFor(asset);
 
-    // Cargar más si quedan 5 o menos
-    if (provider.images.length <= 5) {
+    // Cargar más exactamente cuando queden 5
+    if (provider.images.length == 5) {
       provider.loadMoreIfNeeded();
     }
 
@@ -247,8 +253,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (shouldDelete) {
                       _checkDeleteLimit(provider);
                     }
-                    // Cargar más si quedan 5 o menos después del swipe
-                    if (provider.images.length <= 5) {
+                    // Cargar más exactamente cuando queden 5 después del swipe
+                    if (provider.images.length == 5) {
                       await provider.loadMoreIfNeeded();
                       setState(() {});
                     }
@@ -425,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   deletedCount++;
                 });
                 _checkDeleteLimit(provider);
-                if (provider.images.length <= 5) {
+                if (provider.images.length == 5) {
                   await provider.loadMoreIfNeeded();
                   setState(() {});
                 }
@@ -446,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (provider.images.isEmpty) return;
                 await provider.handleSwipe(0, false);
                 setState(() {});
-                if (provider.images.length <= 5) {
+                if (provider.images.length == 5) {
                   await provider.loadMoreIfNeeded();
                   setState(() {});
                 }
