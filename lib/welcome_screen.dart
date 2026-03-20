@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:photo_manager/photo_manager.dart';
+import 'home_screen.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({Key? key}) : super(key: key);
@@ -14,8 +15,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Future<void> _handlePress() async {
     setState(() { isLoading = true; });
     await Future.delayed(const Duration(seconds: 2)); // Delay para mostrar el cargando
-    final status = await Permission.photos.request();
-    if (status.isGranted) {
+    final PermissionState permissionState = await PhotoManager.requestPermissionExtend();
+    if (permissionState.hasAccess) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -25,11 +26,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Permiso Denegado'),
-          content: const Text('Lo siento, necesitamos tu galería para seguir.'),
+          content: const Text(
+            'No tenemos acceso a tu galería. Si no aparece el popup de permisos, habilítalo desde Ajustes de la app.',
+          ),
           actions: [
             TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await PhotoManager.openSetting();
+              },
+              child: const Text('Abrir ajustes'),
+            ),
+            TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+              child: const Text('Cerrar'),
             ),
           ],
         ),
@@ -138,16 +148,3 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 }
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Photo Swipe')),
-      body: const Center(
-        child: Text('Aquí empieza la lógica principal.'),
-      ),
-    );
-  }
-}
