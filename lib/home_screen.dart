@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_card_swiper/flutter_card_swiper.dart';
-import 'providers/gallery_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'providers/gallery_provider.dart';
+import 'providers/theme_provider.dart';
+import 'theme/app_theme.dart';
+import 'widgets/swipe_deck.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -12,167 +14,82 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final CardSwiperController controller = CardSwiperController();
-  int deletedCount = 0; // Contabiliza las veces que se desliza a la izquierda (A eliminar)
   bool _showDeleteView = false; // Controla si vemos la galería o la vista de "A eliminar"
-  int _currentIndex = 0; // Índice de la carta que debe ser visible
+  final SwipeDeckController _deckController = SwipeDeckController();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<GalleryProvider>().loadImages();
+      final provider = context.read<GalleryProvider>();
+      // Normalmente las imágenes ya se cargaron desde el botón "Empezar".
+      // Solo cargamos aquí si no hay nada (acceso directo a esta pantalla).
+      if (provider.images.isEmpty && !provider.isLoading) {
+        provider.loadImages();
+      }
     });
   }
 
   @override
   void dispose() {
-    controller.dispose();
+    _deckController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Escuchar el provider
+    final p = AppPalette.of(context);
     final provider = context.watch<GalleryProvider>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6F8), // Fondo principal gris claro
+      backgroundColor: p.canvas,
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 16),
-            // Logo superior y botón de ajustes
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Image.asset(
-                      'assets/titulo.png',
-                      height: 48,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => const Text(
-                        'SWIPE\nGALERY',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF7B2FF2),
-                          height: 1.0,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 5,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.tune, color: Color(0xFF7B2FF2), size: 24),
-                          tooltip: 'Seleccionar Álbum',
-                          onPressed: () => _showAlbumSelectionModal(context, provider),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Contenedor principal estilo tarjeta (blanco con sombra)
+            const SizedBox(height: AppTokens.s16),
+            _buildHeader(context, provider, p),
+            const SizedBox(height: AppTokens.s16),
+            // Contenedor principal: frosted/graphite panel
             Expanded(
-              flex: 2, // Hacer el área más grande
+              flex: 2,
               child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4).copyWith(bottom: 12), // Menos margen
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4).copyWith(bottom: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 5),
-                    ),
-                  ],
+                  color: p.panel,
+                  borderRadius: BorderRadius.circular(AppTokens.radiusCard),
+                  border: Border.all(color: p.hairline, width: 1),
                 ),
                 child: Column(
                   children: [
-                    // Fila superior (Galería / A eliminar)
+                    // Segmented pill tabs (Galería / A eliminar)
                     Padding(
-                      padding: const EdgeInsets.all(16.0),
+                      padding: const EdgeInsets.all(AppTokens.s16),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _showDeleteView = false;
-                                _currentIndex = 0; // Al volver a galería, mostrar siempre la primera
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: !_showDeleteView ? const Color(0xFF9047FF) : const Color(0xFFF0F0F0),
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: Text(
-                                'Galería',
-                                style: TextStyle(
-                                  color: !_showDeleteView ? Colors.white : Colors.grey[700],
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
+                          Expanded(
+                            child: _SegmentPill(
+                              label: 'Galería',
+                              active: !_showDeleteView,
+                              enabled: true,
+                              onTap: () {
+                                setState(() {
+                                  _showDeleteView = false;
+                                });
+                              },
                             ),
                           ),
-                          Builder(
-                            builder: (context) {
-                              final pending = provider.pendingDeletePhotos;
-                              final enabled = pending.isNotEmpty;
-                              final bool isActive = _showDeleteView && enabled;
-                              return GestureDetector(
-                                onTap: enabled
-                                    ? () {
-                                        setState(() {
-                                          _showDeleteView = true;
-                                        });
-                                      }
-                                    : null,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: !enabled
-                                        ? const Color(0xFFF0F0F0)
-                                        : (isActive ? const Color(0xFFFF4D4D) : const Color(0xFFFFE5E5)),
-                                    borderRadius: BorderRadius.circular(24),
-                                  ),
-                                  child: Text(
-                                    'A eliminar (${pending.length})',
-                                    style: TextStyle(
-                                      color: !enabled
-                                          ? Colors.grey
-                                          : (isActive ? Colors.white : const Color(0xFFCC0000)),
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
+                          const SizedBox(width: AppTokens.s8),
+                          Expanded(
+                            child: _SegmentPill(
+                              label: 'A eliminar (${provider.pendingDeletePhotos.length})',
+                              active: _showDeleteView && provider.pendingDeletePhotos.isNotEmpty,
+                              enabled: provider.pendingDeletePhotos.isNotEmpty,
+                              onTap: () {
+                                setState(() {
+                                  _showDeleteView = true;
+                                });
+                              },
+                            ),
                           ),
                         ],
                       ),
@@ -180,16 +97,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     // Área del Swiper y las Fotos
                     Expanded(
                       child: _showDeleteView
-                              ? _buildDeleteGallery(provider)
-                              : provider.isLoading
-                                  ? const Center(child: CircularProgressIndicator())
+                          ? _buildDeleteGallery(provider)
+                          : provider.isLoading
+                              ? Center(child: CircularProgressIndicator(color: p.textPrimary))
                               : provider.images.isEmpty
                                   ? (provider.isBatchLoading || provider.hasMorePhotosToLoad)
-                                      ? const Center(child: CircularProgressIndicator())
-                                      : const Center(
+                                      ? Center(child: CircularProgressIndicator(color: p.textPrimary))
+                                      : Center(
                                           child: Text(
                                             '¡No hay más fotos!',
-                                            style: TextStyle(color: Colors.black54, fontSize: 16),
+                                            style: TextStyle(color: p.textSecondary, fontSize: 16),
                                           ),
                                         )
                                   : _buildSwiperArea(provider),
@@ -204,287 +121,192 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildHeader(BuildContext context, GalleryProvider provider, AppPalette p) {
+    final themeProvider = context.watch<ThemeProvider>();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppTokens.s16),
+      child: Row(
+        children: [
+          // Title logo on an inverted (snow) surface so it reads on dark canvas
+          Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppTokens.snowWhite,
+              borderRadius: BorderRadius.circular(AppTokens.radiusUi),
+              border: Border.all(color: p.hairline, width: 1),
+            ),
+            child: Image.asset(
+              'assets/titulo.png',
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => const Text(
+                'SWIPE\nGALLERY',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppTokens.graphite,
+                  height: 1.0,
+                ),
+              ),
+            ),
+          ),
+          const Spacer(),
+          _GhostIconButton(
+            icon: themeProvider.isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+            tooltip: themeProvider.isDark ? 'Modo claro' : 'Modo oscuro',
+            onTap: themeProvider.toggle,
+          ),
+          const SizedBox(width: AppTokens.s8),
+          _GhostIconButton(
+            icon: Icons.tune,
+            tooltip: 'Seleccionar Álbum',
+            onTap: () => _showAlbumSelectionModal(context, provider),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSwiperArea(GalleryProvider provider) {
-    // Mostrar spinner si se está cargando lote y faltan fotos por cargar
+    final p = AppPalette.of(context);
+
     if (provider.images.isEmpty && (provider.isBatchLoading || provider.hasMorePhotosToLoad)) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(child: CircularProgressIndicator(color: p.textPrimary));
     }
     if (provider.images.isEmpty) {
-      return const Center(
-        child: Text('No hay fotos disponibles'),
-      );
+      return Center(child: Text('No hay fotos disponibles', style: TextStyle(color: p.textSecondary)));
     }
-    final asset = provider.images.first;
-    final bytes = provider.getThumbnailFor(asset);
 
-    // Cargar más exactamente cuando queden 5
     if (provider.images.length == 5) {
-      provider.loadMoreIfNeeded();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) provider.loadMoreIfNeeded();
+      });
     }
-
-    // Metadata de la imagen
-    String assetLabel = asset.title ?? asset.id;
-    String assetPath = asset.relativePath ?? '';
-    String assetDate = asset.createDateTime != null
-        ? '${asset.createDateTime.year}-${asset.createDateTime.month.toString().padLeft(2, '0')}-${asset.createDateTime.day.toString().padLeft(2, '0')}'
-        : '';
 
     return Column(
       children: [
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final cardWidth = constraints.maxWidth;
-                final cardHeight = constraints.maxHeight;
-                return Dismissible(
-                  key: ValueKey('dismiss-' + asset.id),
-                  direction: DismissDirection.horizontal,
-                  onDismissed: (direction) async {
-                    final shouldDelete = direction == DismissDirection.startToEnd; // hacia la derecha
-                    if (shouldDelete) {
-                      setState(() {
-                        deletedCount++;
-                      });
-                    }
-                    await provider.handleSwipe(0, shouldDelete);
-                    setState(() {});
-                    if (shouldDelete) {
-                      _checkDeleteLimit(provider);
-                    }
-                    // Cargar más exactamente cuando queden 5 después del swipe
-                    if (provider.images.length == 5) {
-                      await provider.loadMoreIfNeeded();
-                      setState(() {});
-                    }
-                  },
-                  background: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
-                    child: Container(
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.only(left: 24),
-                      color: const Color(0xFFFF4D4D),
-                      child: const Icon(Icons.close, color: Colors.white, size: 32),
-                    ),
-                  ),
-                  secondaryBackground: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
-                    child: Container(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.only(right: 24),
-                      color: const Color(0xFF7B2FF2),
-                      child: const Icon(Icons.check, color: Colors.white, size: 32),
-                    ),
-                  ),
-                  child: Container(
-                    width: cardWidth,
-                    height: cardHeight,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 10,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(24),
-                            child: TweenAnimationBuilder<double>(
-                              key: ValueKey('fade-' + asset.id),
-                              tween: Tween(begin: 0, end: 1),
-                              duration: const Duration(milliseconds: 220),
-                              builder: (context, value, child) => Opacity(
-                                opacity: value,
-                                child: child,
-                              ),
-                              child: bytes != null
-                                  ? Container(
-                                      color: Colors.grey[200], // Fondo para fotos no cuadradas
-                                      child: Image.memory(
-                                        bytes,
-                                        fit: BoxFit.contain,
-                                        gaplessPlayback: true,
-                                      ),
-                                    )
-                                  : Container(color: Colors.grey[300]),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: Container(
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                            ),
-                            child: IconButton(
-                              icon: const Icon(Icons.info_outline, color: Color(0xFF7B2FF2), size: 28),
-                              tooltip: 'Ver metadata',
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => AlertDialog(
-                                    backgroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                    ),
-                                    title: const Text(
-                                      'Información de la foto',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 18,
-                                        color: Color(0xFF7B2FF2),
-                                      ),
-                                    ),
-                                    content: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Nombre: $assetLabel',
-                                          style: const TextStyle(fontSize: 15, color: Colors.black),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          'Ubicación: $assetPath',
-                                          style: const TextStyle(fontSize: 15, color: Colors.black),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          'Fecha: $assetDate',
-                                          style: const TextStyle(fontSize: 15, color: Colors.black),
-                                        ),
-                                      ],
-                                    ),
-                                    actionsAlignment: MainAxisAlignment.center,
-                                    actions: [
-                                      ElevatedButton(
-                                        onPressed: () => Navigator.pop(context),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFF7B2FF2),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(24),
-                                          ),
-                                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                                          elevation: 0,
-                                        ),
-                                        child: const Text(
-                                          'Cerrar',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+            padding: const EdgeInsets.symmetric(horizontal: AppTokens.s12, vertical: AppTokens.s8),
+            child: SwipeDeck<AssetEntity>(
+              controller: _deckController,
+              items: provider.images,
+              onSwipe: (asset, direction) => _handleDeckSwipe(provider, direction),
+              itemBuilder: (context, asset, isTop, progress) =>
+                  _buildSwipeCard(provider, asset, isTop),
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppTokens.s12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            // Botón de deshacer
-            GestureDetector(
+            // Deshacer
+            _RoundActionButton(
+              color: p.panelFrost,
+              borderColor: p.hairline,
+              icon: Icons.undo,
+              iconColor: p.textSecondary,
+              enabled: provider.canUndo,
               onTap: () {
-                final provider = context.read<GalleryProvider>();
-                provider.undoLastAction();
+                final bool? wasDelete = provider.undoLastAction();
+                if (wasDelete != null) {
+                  _deckController.playEnter(
+                    wasDelete ? SwipeDirection.right : SwipeDirection.left,
+                  );
+                }
                 setState(() {});
               },
-              child: Container(
-                width: 70,
-                height: 70,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black.withOpacity(0.05),
-                  border: Border.all(color: Colors.black.withOpacity(0.1), width: 1.5),
-                ),
-                child: const Icon(Icons.undo, color: Colors.black87, size: 28),
-              ),
             ),
-            // Enviar a "A eliminar"
-            GestureDetector(
-              onTap: () async {
-                if (provider.images.isEmpty) return;
-                await provider.handleSwipe(0, true);
-                setState(() {
-                  deletedCount++;
-                });
-                _checkDeleteLimit(provider);
-                if (provider.images.length == 5) {
-                  await provider.loadMoreIfNeeded();
-                  setState(() {});
-                }
-              },
-              child: Container(
-                width: 70,
-                height: 70,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFFFF4D4D),
-                ),
-                child: const Icon(Icons.close, color: Colors.white, size: 36),
-              ),
+            // Enviar a "A eliminar" (swipe a la derecha)
+            _RoundActionButton(
+              color: p.danger,
+              icon: Icons.close,
+              iconColor: Colors.white,
+              iconSize: 32,
+              onTap: () => _deckController.swipeRight(),
             ),
-            // Conservar
-            GestureDetector(
-              onTap: () async {
-                if (provider.images.isEmpty) return;
-                await provider.handleSwipe(0, false);
-                setState(() {});
-                if (provider.images.length == 5) {
-                  await provider.loadMoreIfNeeded();
-                  setState(() {});
-                }
-              },
-              child: Container(
-                width: 70,
-                height: 70,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFF7B2FF2),
-                ),
-                child: const Icon(Icons.check, color: Colors.white, size: 36),
-              ),
+            // Conservar (swipe a la izquierda)
+            _RoundActionButton(
+              color: p.ctaBg,
+              icon: Icons.check,
+              iconColor: p.ctaFg,
+              iconSize: 32,
+              onTap: () => _deckController.swipeLeft(),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppTokens.s12),
       ],
     );
   }
 
+  void _handleDeckSwipe(GalleryProvider provider, SwipeDirection direction) {
+    final shouldDelete = direction == SwipeDirection.right;
+    provider.handleSwipe(0, shouldDelete);
+    setState(() {});
+    if (shouldDelete) {
+      _checkDeleteLimit(provider);
+    }
+    if (provider.images.length == 5) {
+      provider.loadMoreIfNeeded();
+    }
+  }
+
+  Widget _buildSwipeCard(GalleryProvider provider, AssetEntity asset, bool isTop) {
+    final p = AppPalette.of(context);
+    final bytes = provider.getThumbnailFor(asset);
+
+    String assetLabel = asset.title ?? asset.id;
+    String assetPath = asset.relativePath ?? '';
+    String assetDate =
+        '${asset.createDateTime.year}-${asset.createDateTime.month.toString().padLeft(2, '0')}-${asset.createDateTime.day.toString().padLeft(2, '0')}';
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppTokens.radiusCard),
+        border: Border.all(color: p.hairline, width: 1),
+        color: p.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEAEAEA),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (bytes != null)
+            Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true),
+          if (isTop)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Material(
+                color: p.panelFrost,
+                shape: CircleBorder(side: BorderSide(color: p.hairline, width: 1)),
+                clipBehavior: Clip.antiAlias,
+                child: IconButton(
+                  icon: Icon(Icons.info_outline, color: p.textPrimary, size: 24),
+                  tooltip: 'Ver metadata',
+                  onPressed: () => _showMetadataDialog(context, assetLabel, assetPath, assetDate),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDeleteGallery(GalleryProvider provider) {
+    final p = AppPalette.of(context);
     final pending = provider.pendingDeletePhotos;
     if (pending.isEmpty) {
-      return const Center(child: Text('No hay fotos marcadas para eliminar'));
+      return Center(child: Text('No hay fotos marcadas para eliminar', style: TextStyle(color: p.textSecondary)));
     }
 
     return Column(
       children: [
         Expanded(
           child: GridView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppTokens.s16),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               crossAxisSpacing: 8,
@@ -497,21 +319,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Positioned.fill(
                     child: FutureBuilder(
-                      future: asset.thumbnailDataWithSize(ThumbnailSize(200, 200)),
+                      future: asset.thumbnailDataWithSize(const ThumbnailSize(200, 200)),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
                           return ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.memory(
-                              snapshot.data!,
-                              fit: BoxFit.cover,
-                            ),
+                            borderRadius: BorderRadius.circular(AppTokens.radiusUi),
+                            child: Image.memory(snapshot.data!, fit: BoxFit.cover),
                           );
                         }
                         return Container(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(AppTokens.radiusUi),
+                            color: p.panelFrost,
                           ),
                         );
                       },
@@ -520,23 +339,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   Positioned(
                     top: 4,
                     right: 4,
-                    child: GestureDetector
-                    (
-                      onTap: () {
-                        provider.removeFromPending(index);
-                      },
+                    child: GestureDetector(
+                      onTap: () => provider.removeFromPending(index),
                       child: Container(
                         width: 24,
                         height: 24,
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
+                          color: Colors.black.withValues(alpha: 0.6),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
-                          Icons.close,
-                          color: Colors.white,
-                          size: 16,
-                        ),
+                        child: const Icon(Icons.close, color: Colors.white, size: 16),
                       ),
                     ),
                   ),
@@ -546,107 +358,21 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(AppTokens.s16),
           child: SizedBox(
             width: double.infinity,
+            height: 52,
             child: ElevatedButton.icon(
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    backgroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    title: const Text(
-                      'Eliminar',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Colors.black,
-                      ),
-                    ),
-                    content: Text(
-                      '¿Eliminar ${provider.pendingDeletePhotos.length} elementos seleccionados? Esta acción no se puede deshacer.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Colors.black54,
-                        height: 1.3,
-                      ),
-                    ),
-                    actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 0),
-                    actions: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => Navigator.pop(context),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF5A6270),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: const Text(
-                                'Cancelar',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () async {
-                                Navigator.pop(context);
-                                await provider.confirmDeleteAll();
-                                setState(() {
-                                  _showDeleteView = false;
-                                });
-                              },
-                              icon: const Icon(Icons.delete_outline, color: Colors.white, size: 20),
-                              label: const Text(
-                                'Eliminar',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFF4D4D),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                elevation: 0,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              },
+              onPressed: () => _showConfirmDeleteDialog(context, provider),
               icon: const Icon(Icons.delete_outline, color: Colors.white, size: 22),
               label: const Text(
                 'Eliminar',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF4D4D),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
+                backgroundColor: p.danger,
+                elevation: 0,
+                shape: const StadiumBorder(),
               ),
             ),
           ),
@@ -655,56 +381,143 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showMetadataDialog(BuildContext context, String label, String path, String date) {
+    final p = AppPalette.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Información de la foto',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18, color: p.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Nombre: $label', style: TextStyle(fontSize: 15, color: p.textPrimary)),
+            const SizedBox(height: 6),
+            Text('Ubicación: $path', style: TextStyle(fontSize: 15, color: p.textPrimary)),
+            const SizedBox(height: 6),
+            Text('Fecha: $date', style: TextStyle(fontSize: 15, color: p.textPrimary)),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: p.ctaBg,
+                foregroundColor: p.ctaFg,
+                elevation: 0,
+                shape: const StadiumBorder(),
+              ),
+              child: Text('Cerrar', style: TextStyle(color: p.ctaFg, fontWeight: FontWeight.w600, fontSize: 15)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showConfirmDeleteDialog(BuildContext context, GalleryProvider provider) {
+    final p = AppPalette.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Eliminar',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18, color: p.textPrimary),
+        ),
+        content: Text(
+          '¿Eliminar ${provider.pendingDeletePhotos.length} elementos seleccionados? Esta acción no se puede deshacer.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 15, color: p.textSecondary, height: 1.35),
+        ),
+        actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 50,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: p.textPrimary,
+                      side: BorderSide(color: p.hairline, width: 1),
+                      shape: const StadiumBorder(),
+                    ),
+                    child: const Text('Cancelar', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppTokens.s12),
+              Expanded(
+                child: SizedBox(
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      await provider.confirmDeleteAll();
+                      setState(() {
+                        _showDeleteView = false;
+                      });
+                    },
+                    icon: const Icon(Icons.delete_outline, color: Colors.white, size: 20),
+                    label: const Text(
+                      'Eliminar',
+                      style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: p.danger,
+                      elevation: 0,
+                      shape: const StadiumBorder(),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   void _checkDeleteLimit(GalleryProvider provider) {
+    final p = AppPalette.of(context);
     if (provider.pendingDeletePhotos.length == 30) {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          title: const Text(
+          title: Text(
             'Aviso de rendimiento',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-              color: Colors.black,
-            ),
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18, color: p.textPrimary),
           ),
-          content: const Text(
+          content: Text(
             'Se recomienda ir a la papelera y eliminar las fotos definitivamente para mantener un rendimiento óptimo en la aplicación.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 15,
-              color: Colors.black54,
-              height: 1.3,
-            ),
+            style: TextStyle(fontSize: 15, color: p.textSecondary, height: 1.35),
           ),
-          actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 0),
+          actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 20),
           actions: [
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton.icon(
+              height: 48,
+              child: ElevatedButton(
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
-                label: const Text(
-                  'Continuar',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF7B2FF2),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
+                  backgroundColor: p.ctaBg,
+                  foregroundColor: p.ctaFg,
                   elevation: 0,
+                  shape: const StadiumBorder(),
                 ),
+                child: Text('Continuar', style: TextStyle(color: p.ctaFg, fontWeight: FontWeight.w600, fontSize: 15)),
               ),
             ),
           ],
@@ -714,33 +527,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAlbumSelectionModal(BuildContext context, GalleryProvider provider) {
+    final p = AppPalette.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: p.panel,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppTokens.radiusPanel)),
       ),
       builder: (context) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
+              Padding(
+                padding: const EdgeInsets.all(AppTokens.s16),
                 child: Text(
                   'Seleccionar Álbum',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: p.textPrimary),
                 ),
               ),
+              Container(height: 1, color: p.hairline),
               Flexible(
                 child: provider.albums.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.all(32.0),
-                        child: Text('No hay álbumes disponibles'),
+                    ? Padding(
+                        padding: const EdgeInsets.all(AppTokens.s32),
+                        child: Text('No hay álbumes disponibles', style: TextStyle(color: p.textSecondary)),
                       )
                     : ListView.builder(
                         shrinkWrap: true,
@@ -756,15 +567,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                 return Text(
                                   '${album.name} ($count)',
                                   style: TextStyle(
-                                    color: isSelected ? const Color(0xFF7B2FF2) : Colors.black87,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    color: isSelected ? p.textPrimary : p.textSecondary,
+                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                                     fontSize: 16,
                                   ),
                                 );
                               },
                             ),
                             trailing: isSelected
-                                ? const Icon(Icons.check_circle, color: Color(0xFF7B2FF2))
+                                ? Icon(Icons.check_circle, color: p.accent)
                                 : null,
                             onTap: () {
                               provider.setAlbum(album);
@@ -774,11 +585,120 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppTokens.s8),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _SegmentPill extends StatelessWidget {
+  final String label;
+  final bool active;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  const _SegmentPill({
+    required this.label,
+    required this.active,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final Color fg = !enabled ? p.textMuted : (active ? p.ctaFg : p.textSecondary);
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(vertical: AppTokens.s12),
+        decoration: BoxDecoration(
+          color: active ? p.ctaBg : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTokens.radiusButton),
+          border: Border.all(color: active ? Colors.transparent : p.hairline, width: 1),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: fg, fontWeight: FontWeight.w600, fontSize: 15),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoundActionButton extends StatelessWidget {
+  final Color color;
+  final Color? borderColor;
+  final IconData icon;
+  final Color iconColor;
+  final double iconSize;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  const _RoundActionButton({
+    required this.color,
+    required this.icon,
+    required this.iconColor,
+    required this.onTap,
+    this.borderColor,
+    this.iconSize = 28,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final button = Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color,
+        border: borderColor != null ? Border.all(color: borderColor!, width: 1) : null,
+      ),
+      child: Icon(icon, color: iconColor, size: iconSize),
+    );
+
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: AnimatedOpacity(
+        opacity: enabled ? 1.0 : 0.3,
+        duration: const Duration(milliseconds: 180),
+        child: button,
+      ),
+    );
+  }
+}
+
+class _GhostIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _GhostIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Material(
+      color: p.panelFrost,
+      shape: CircleBorder(side: BorderSide(color: p.hairline, width: 1)),
+      clipBehavior: Clip.antiAlias,
+      child: IconButton(
+        icon: Icon(icon, color: p.textPrimary, size: 22),
+        tooltip: tooltip,
+        onPressed: onTap,
+      ),
     );
   }
 }

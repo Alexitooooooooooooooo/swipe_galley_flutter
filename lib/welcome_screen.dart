@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:provider/provider.dart';
 import 'home_screen.dart';
+import 'providers/gallery_provider.dart';
+import 'providers/theme_provider.dart';
+import 'theme/app_theme.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({Key? key}) : super(key: key);
@@ -14,24 +18,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   Future<void> _handlePress() async {
     setState(() { isLoading = true; });
-    await Future.delayed(const Duration(seconds: 2)); // Delay para mostrar el cargando
-    final PermissionState permissionState = await PhotoManager.requestPermissionExtend(
-      requestOption: const PermissionRequestOption(
-        androidPermission: AndroidPermission(
-          type: RequestType.image,
-          mediaLocation: false,
-        ),
-      ),
-    );
-    bool canContinue = permissionState.hasAccess;
 
-    if (!canContinue) {
-      final albums = await PhotoManager.getAssetPathList(
-        type: RequestType.image,
-        hasAll: true,
-      );
-      canContinue = albums.isNotEmpty;
-    }
+    // Carga real: pide permisos, obtiene los álbumes y trae el primer lote
+    // de imágenes (con sus miniaturas) antes de navegar a la funcionalidad.
+    final provider = context.read<GalleryProvider>();
+    final bool canContinue = await provider.loadImages();
+
+    if (!mounted) return;
+    setState(() { isLoading = false; });
 
     if (canContinue) {
       Navigator.pushReplacement(
@@ -62,166 +56,149 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
       );
     }
-    setState(() { isLoading = false; });
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    final p = AppPalette.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Desarrollado por AlexitoDev',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18, color: p.textPrimary),
+        ),
+        content: Text(
+          'Esta app fue creada por AlexitoDev\n\n¡Gracias por usar Swipe Gallery!',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 15, color: p.textSecondary, height: 1.4),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: p.ctaBg,
+                foregroundColor: p.ctaFg,
+                elevation: 0,
+                shape: const StadiumBorder(),
+              ),
+              child: Text(
+                'Cerrar',
+                style: TextStyle(color: p.ctaFg, fontWeight: FontWeight.w600, fontSize: 15),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final tt = Theme.of(context).textTheme;
+    final themeProvider = context.watch<ThemeProvider>();
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: p.canvas,
       body: SafeArea(
         child: Stack(
           children: [
-            // Botón helper arriba a la derecha
+            // Radial violet spotlight (signature accent).
             Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.info_outline_rounded, color: Color(0xFF7B2FF2), size: 32),
-                tooltip: 'Acerca de',
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      backgroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      title: const Text(
-                        'Desarrollado por AlexitoDev',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 20,
-                          color: Color(0xFF7B2FF2),
-                        ),
-                      ),
-                      content: const Text(
-                        'Esta app fue creada por AlexitoDev\n\n¡Gracias por usar Swipe Gallery!',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.black54,
-                          height: 1.3,
-                        ),
-                      ),
-                      actionsAlignment: MainAxisAlignment.center,
-                      actions: [
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF7B2FF2),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Cerrar',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+              top: -140,
+              left: -80,
+              right: -80,
+              child: IgnorePointer(
+                child: Container(
+                  height: 420,
+                  decoration: BoxDecoration(gradient: AppTokens.violetSpotlight),
+                ),
               ),
             ),
-            // El resto de la UI
-            Positioned.fill(
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppTokens.s24),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 40),
-                  // Logo
-                  Center(
-                    child: Image.asset(
-                      'assets/logo.png',
-                      width: 200,
-                      height: 200,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  // Title
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          '¡Te damos la',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 36,
-                          ),
-                        ),
-                        Text(
-                          'bienvenida a Photo Swipe!',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 36,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Organiza tu galería. Limpieza Inteligente.',
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: isLoading ? () {} : _handlePress,
-                        style: ButtonStyle(
-                          backgroundColor: MaterialStateProperty.resolveWith<Color>((states) {
-                            if (states.contains(MaterialState.disabled)) {
-                              return const Color(0xFF7B2FF2); // Morado
-                            }
-                            return const Color(0xFF7B2FF2);
-                          }),
-                          padding: MaterialStateProperty.all(const EdgeInsets.symmetric(vertical: 16)),
-                          textStyle: MaterialStateProperty.all(const TextStyle(fontSize: 18)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            isLoading
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.arrow_forward, color: Colors.white, size: 18),
-                            const SizedBox(width: 12),
-                            Text(
-                              isLoading ? 'Cargando...' : 'Empezar',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
+                  const SizedBox(height: AppTokens.s8),
+                  // Top bar: theme toggle + about (ghost controls)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _GhostIconButton(
+                        icon: themeProvider.isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                        tooltip: themeProvider.isDark ? 'Modo claro' : 'Modo oscuro',
+                        onTap: themeProvider.toggle,
                       ),
+                      const SizedBox(width: AppTokens.s8),
+                      _GhostIconButton(
+                        icon: Icons.info_outline_rounded,
+                        tooltip: 'Acerca de',
+                        onTap: () => _showAboutDialog(context),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Image.asset(
+                    'assets/logo.png',
+                    width: 180,
+                    height: 180,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(height: AppTokens.s24),
+                  // Dusk violet wash strip
+                  Container(
+                    height: 3,
+                    width: 140,
+                    decoration: BoxDecoration(
+                      gradient: AppTokens.duskVioletWash,
+                      borderRadius: BorderRadius.circular(AppTokens.radiusButton),
                     ),
                   ),
+                  const SizedBox(height: AppTokens.s28),
+                  Text(
+                    '¡Te damos la',
+                    textAlign: TextAlign.center,
+                    style: tt.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 40,
+                      height: 1.05,
+                      letterSpacing: -1.4,
+                      color: p.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    'bienvenida a Photo Swipe!',
+                    textAlign: TextAlign.center,
+                    style: tt.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 40,
+                      height: 1.05,
+                      letterSpacing: -1.4,
+                      color: p.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: AppTokens.s16),
+                  Text(
+                    'Organiza tu galería. Limpieza inteligente.',
+                    textAlign: TextAlign.center,
+                    style: tt.bodyLarge?.copyWith(
+                      fontSize: 17,
+                      color: p.textSecondary,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                  const Spacer(),
+                  _PrimaryCta(
+                    isLoading: isLoading,
+                    label: 'Empezar',
+                    onPressed: _handlePress,
+                  ),
+                  const SizedBox(height: AppTokens.s28),
                 ],
               ),
             ),
@@ -232,3 +209,80 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 }
 
+class _GhostIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _GhostIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Material(
+      color: p.panelFrost,
+      shape: CircleBorder(side: BorderSide(color: p.hairline, width: 1)),
+      clipBehavior: Clip.antiAlias,
+      child: IconButton(
+        icon: Icon(icon, color: p.textPrimary, size: 22),
+        tooltip: tooltip,
+        onPressed: onTap,
+      ),
+    );
+  }
+}
+
+class _PrimaryCta extends StatelessWidget {
+  final bool isLoading;
+  final String label;
+  final VoidCallback? onPressed;
+
+  const _PrimaryCta({
+    required this.isLoading,
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: ElevatedButton(
+        onPressed: isLoading ? null : onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: p.ctaBg,
+          foregroundColor: p.ctaFg,
+          disabledBackgroundColor: p.ctaBg,
+          disabledForegroundColor: p.ctaFg,
+          elevation: 0,
+          shape: const StadiumBorder(),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isLoading)
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(color: p.ctaFg, strokeWidth: 2),
+              )
+            else
+              Icon(Icons.arrow_forward, color: p.ctaFg, size: 18),
+            const SizedBox(width: 12),
+            Text(
+              isLoading ? 'Cargando...' : label,
+              style: TextStyle(color: p.ctaFg, fontWeight: FontWeight.w600, fontSize: 16, letterSpacing: 0.2),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

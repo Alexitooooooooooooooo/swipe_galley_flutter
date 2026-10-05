@@ -2,20 +2,21 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 
-
 class GalleryProvider with ChangeNotifier {
-  List<AssetEntity> _images = [];
-  List<AssetEntity> _pendingDeletePhotos = [];
+  static const int _maxThumbnailCache = 80;
+
+  final List<AssetEntity> _images = [];
+  final List<AssetEntity> _pendingDeletePhotos = [];
   bool _isLoading = true;
   bool _isBatchLoading = false;
   final Map<String, Uint8List?> _thumbnailById = {};
   final List<_SwipeAction> _history = [];
 
-  // NUEVO: Para paginación random eficiente
+  // Paginación aleatoria eficiente
   int _totalCount = 0;
-  Set<int> _usedIndexes = {};
+  final Set<int> _usedIndexes = {};
   final Set<String> _loadedUniqueIds = {};
-  int _batchSize = 20;
+  final int _batchSize = 20;
   List<AssetPathEntity> _albums = [];
   AssetPathEntity? _currentAlbum;
 
@@ -26,6 +27,7 @@ class GalleryProvider with ChangeNotifier {
   int get totalPhotosInScope => _totalCount;
   int get loadedUniquePhotosCount => _loadedUniqueIds.length;
   bool get hasMorePhotosToLoad => loadedUniquePhotosCount < totalPhotosInScope;
+  bool get canUndo => _history.isNotEmpty;
   List<AssetPathEntity> get albums => _albums;
   AssetPathEntity? get currentAlbum => _currentAlbum;
 
@@ -33,62 +35,79 @@ class GalleryProvider with ChangeNotifier {
 
   GalleryProvider();
 
-  Future<void> loadImages() async {
+  Future<bool> loadImages() async {
     _isLoading = true;
     notifyListeners();
-    final PermissionState ps = await PhotoManager.requestPermissionExtend(
-      requestOption: const PermissionRequestOption(
-        androidPermission: AndroidPermission(
-          type: RequestType.image,
-          mediaLocation: false,
+    try {
+      final PermissionState ps = await PhotoManager.requestPermissionExtend(
+        requestOption: const PermissionRequestOption(
+          androidPermission: AndroidPermission(
+            type: RequestType.image,
+            mediaLocation: false,
+          ),
         ),
-      ),
-    );
+      );
 
-    final albums = await PhotoManager.getAssetPathList(
-      type: RequestType.image,
-      hasAll: true,
-    );
+      final albums = await PhotoManager.getAssetPathList(
+        type: RequestType.image,
+        hasAll: true,
+      );
 
-    if (ps.hasAccess || albums.isNotEmpty) {
-      _usedIndexes.clear();
-      _loadedUniqueIds.clear();
-      _pendingDeletePhotos.clear();
-      _history.clear();
-      _images.clear();
-      _albums = albums;
+      final bool hasAccess = ps.hasAccess || albums.isNotEmpty;
 
-      if (albums.isNotEmpty) {
-        _currentAlbum = albums.first;
-        _totalCount = await _currentAlbum!.assetCountAsync;
-        await _addRandomBatch();
+      if (hasAccess) {
+        _usedIndexes.clear();
+        _loadedUniqueIds.clear();
+        _pendingDeletePhotos.clear();
+        _history.clear();
+        _images.clear();
+        _thumbnailById.clear();
+        _albums = albums;
+
+        if (albums.isNotEmpty) {
+          _currentAlbum = albums.first;
+          _totalCount = await _currentAlbum!.assetCountAsync;
+          await _addRandomBatch();
+        } else {
+          _currentAlbum = null;
+          _totalCount = 0;
+        }
       } else {
         _currentAlbum = null;
         _totalCount = 0;
+        _images.clear();
+        _loadedUniqueIds.clear();
       }
-    } else {
-      await PhotoManager.openSetting();
+      return hasAccess;
+    } catch (e) {
+      debugPrint('loadImages error: $e');
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-    _isLoading = false;
-    notifyListeners();
   }
 
   Future<void> setAlbum(AssetPathEntity album) async {
     _isLoading = true;
     notifyListeners();
+    try {
+      _currentAlbum = album;
+      _usedIndexes.clear();
+      _loadedUniqueIds.clear();
+      // No limpiamos _pendingDeletePhotos para no perder lo ya seleccionado.
+      _history.clear();
+      _images.clear();
+      _thumbnailById.clear();
 
-    _currentAlbum = album;
-    _usedIndexes.clear();
-    _loadedUniqueIds.clear();
-    // No limpiamos _pendingDeletePhotos para que el usuario no pierda lo que ya seleccionó para borrar
-    _history.clear();
-    _images.clear();
-
-    _totalCount = await _currentAlbum!.assetCountAsync;
-    await _addRandomBatch();
-
-    _isLoading = false;
-    notifyListeners();
+      _totalCount = await album.assetCountAsync;
+      await _addRandomBatch();
+    } catch (e) {
+      debugPrint('setAlbum error: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   // Cargar un batch de fotos aleatorias que no hayan salido
@@ -98,7 +117,8 @@ class GalleryProvider with ChangeNotifier {
     _isBatchLoading = true;
     notifyListeners();
     try {
-      final availableIndexes = List<int>.generate(_totalCount, (i) => i).where((i) => !_usedIndexes.contains(i)).toList();
+      final availableIndexes =
+          List<int>.generate(_totalCount, (i) => i).where((i) => !_usedIndexes.contains(i)).toList();
       if (availableIndexes.isEmpty) return;
 
       availableIndexes.shuffle();
@@ -106,8 +126,8 @@ class GalleryProvider with ChangeNotifier {
       batchIndexes.sort(); // Para pedir rangos contiguos
 
       // Agrupar en subrangos contiguos para minimizar llamadas
-      List<List<int>> ranges = [];
-      for (var idx in batchIndexes) {
+      final List<List<int>> ranges = [];
+      for (final idx in batchIndexes) {
         if (ranges.isEmpty || idx != ranges.last.last + 1) {
           ranges.add([idx]);
         } else {
@@ -115,11 +135,11 @@ class GalleryProvider with ChangeNotifier {
         }
       }
 
-      List<AssetEntity> batch = [];
+      final List<AssetEntity> batch = [];
       final pendingIds = _pendingDeletePhotos.map((p) => p.id).toSet();
-      for (var range in ranges) {
-        int start = range.first;
-        int end = range.last + 1;
+      for (final range in ranges) {
+        final int start = range.first;
+        final int end = range.last + 1;
         var assets = await _currentAlbum!.getAssetListRange(start: start, end: end);
         if (pendingIds.isNotEmpty) {
           assets = assets.where((asset) => !pendingIds.contains(asset.id)).toList();
@@ -136,11 +156,13 @@ class GalleryProvider with ChangeNotifier {
       for (final asset in batch) {
         try {
           final bytes = await asset.thumbnailDataWithSize(const ThumbnailSize(320, 420));
-          _thumbnailById[asset.id] = bytes;
+          _cacheThumbnail(asset.id, bytes);
         } catch (_) {
-          _thumbnailById[asset.id] = null;
+          _cacheThumbnail(asset.id, null);
         }
       }
+    } catch (e) {
+      debugPrint('_addRandomBatch error: $e');
     } finally {
       _isBatchLoading = false;
       notifyListeners();
@@ -165,7 +187,7 @@ class GalleryProvider with ChangeNotifier {
     }
     // Sacar de la lista principal
     _images.removeAt(index);
-    // Mantener el cache por id (no hace falta borrar aquí)
+    _pruneThumbnailCache();
     notifyListeners();
   }
 
@@ -174,14 +196,18 @@ class GalleryProvider with ChangeNotifier {
     try {
       final ids = _pendingDeletePhotos.map((a) => a.id).toList();
       final List<String> result = await PhotoManager.editor.deleteWithIds(ids);
+      // Liberar las miniaturas de lo borrado.
+      for (final id in ids) {
+        _thumbnailById.remove(id);
+      }
       if (result.isNotEmpty) {
-        print("Fotos eliminadas exitosamente");
+        debugPrint('Fotos eliminadas exitosamente');
       }
       _pendingDeletePhotos.clear();
       _history.clear(); // Eliminar historial para que no se pueda hacer undo
       notifyListeners();
     } catch (e) {
-      print("Error al borrar: $e");
+      debugPrint('Error al borrar: $e');
     }
   }
 
@@ -190,8 +216,11 @@ class GalleryProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void undoLastAction() {
-    if (_history.isEmpty) return;
+  /// Devuelve la dirección de la acción deshecha: `true` = fue a eliminar
+  /// (swipe derecha), `false` = fue conservar (swipe izquierda), `null` = no
+  /// había nada que deshacer.
+  bool? undoLastAction() {
+    if (_history.isEmpty) return null;
     final last = _history.removeLast();
 
     // Si la última acción fue "enviar a eliminar", quitarla de pendientes
@@ -206,6 +235,24 @@ class GalleryProvider with ChangeNotifier {
     }
 
     notifyListeners();
+    return last.delete;
+  }
+
+  void _cacheThumbnail(String id, Uint8List? bytes) {
+    _thumbnailById[id] = bytes;
+    _pruneThumbnailCache();
+  }
+
+  /// Evita que el caché de miniaturas crezca sin límite (OOM en galerías
+  /// grandes). Primero descarta las que ya no están en la pila visible.
+  void _pruneThumbnailCache() {
+    if (_thumbnailById.length <= _maxThumbnailCache) return;
+    final keep = _images.map((a) => a.id).toSet();
+    final removable = _thumbnailById.keys.where((id) => !keep.contains(id)).toList();
+    for (final id in removable) {
+      if (_thumbnailById.length <= _maxThumbnailCache) break;
+      _thumbnailById.remove(id);
+    }
   }
 }
 
