@@ -3,7 +3,14 @@ package com.example.swipeflutter
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
@@ -51,9 +58,14 @@ class DailyWidgetProvider : HomeWidgetProvider() {
                 setOnClickPendingIntent(R.id.widget_container, launchIntent)
                 setOnClickPendingIntent(R.id.widget_button, launchIntent)
 
-                // Foto al frente (si la app guardó una). Si no, placeholder.
+                // Foto al frente (redondeada). Si no hay, placeholder.
                 val imagePath = widgetData.getString("dgo_image", null)
-                val bitmap = imagePath?.let { BitmapFactory.decodeFile(it) }
+                val bitmap = imagePath?.let { path ->
+                    BitmapFactory.decodeFile(path)?.let { raw ->
+                        val scaled = scaleDown(raw, 300)
+                        roundedBitmap(scaled, 16f * context.resources.displayMetrics.density)
+                    }
+                }
                 if (bitmap != null) {
                     setImageViewBitmap(R.id.widget_img, bitmap)
                 } else {
@@ -63,5 +75,33 @@ class DailyWidgetProvider : HomeWidgetProvider() {
             }
             appWidgetManager.updateAppWidget(widgetId, views)
         }
+    }
+
+    private fun scaleDown(source: Bitmap, maxDim: Int): Bitmap {
+        val maxSide = maxOf(source.width, source.height)
+        if (maxSide <= maxDim) return source
+        val scale = maxDim.toFloat() / maxSide
+        return Bitmap.createScaledBitmap(
+            source,
+            (source.width * scale).toInt().coerceAtLeast(1),
+            (source.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    }
+
+    private fun roundedBitmap(source: Bitmap, radiusPx: Float): Bitmap {
+        val width = source.width
+        val height = source.height
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val rect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        val path = Path().apply { addRoundRect(rect, radiusPx, radiusPx, Path.Direction.CW) }
+        canvas.drawARGB(0, 0, 0, 0)
+        paint.color = 0xFF000000.toInt()
+        canvas.drawPath(path, paint)
+        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(source, 0f, 0f, paint)
+        return output
     }
 }
