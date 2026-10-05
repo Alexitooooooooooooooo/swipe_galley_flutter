@@ -19,6 +19,10 @@ class GalleryProvider with ChangeNotifier {
   final int _batchSize = 20;
   List<AssetPathEntity> _albums = [];
   AssetPathEntity? _currentAlbum;
+  DateTimeRange? _dateFilter;
+
+  /// Si la app se abrió desde el widget, esta foto debe quedar al frente.
+  String? pendingAssetId;
 
   List<AssetEntity> get images => _images;
   List<AssetEntity> get pendingDeletePhotos => _pendingDeletePhotos;
@@ -30,14 +34,62 @@ class GalleryProvider with ChangeNotifier {
   bool get canUndo => _history.isNotEmpty;
   List<AssetPathEntity> get albums => _albums;
   AssetPathEntity? get currentAlbum => _currentAlbum;
+  DateTimeRange? get dateFilter => _dateFilter;
 
   Uint8List? getThumbnailFor(AssetEntity asset) => _thumbnailById[asset.id];
 
   GalleryProvider();
 
+  /// Construye el filtro nativo (por rango de fechas) para photo_manager.
+  PMFilter? _buildFilter() {
+    final range = _dateFilter;
+    if (range == null) return null;
+    return FilterOptionGroup(
+      createTimeCond: DateTimeCond(
+        min: DateTime(range.start.year, range.start.month, range.start.day),
+        // Incluye todo el día final.
+        max: DateTime(range.end.year, range.end.month, range.end.day, 23, 59, 59, 999),
+      ),
+    );
+  }
+
+  /// Cambia el rango de fechas y recarga la galería. `null` = sin filtro.
+  Future<void> setDateFilter(DateTimeRange? range) async {
+    _dateFilter = range;
+    await loadImages();
+  }
+
+  /// Pone la foto [assetId] al frente de la pila (p. ej. al tocar el widget).
+  Future<void> bringToFront(String assetId) async {
+    final index = _images.indexWhere((a) => a.id == assetId);
+    if (index == 0) return;
+    if (index > 0) {
+      final asset = _images.removeAt(index);
+      _images.insert(0, asset);
+      notifyListeners();
+      return;
+    }
+    // No está cargada: la traemos por id y la insertamos al frente.
+    try {
+      final asset = await AssetEntity.fromId(assetId);
+      if (asset == null) return;
+      try {
+        final bytes = await asset.thumbnailDataWithSize(const ThumbnailSize(320, 420));
+        _cacheThumbnail(asset.id, bytes);
+      } catch (_) {
+        // Sin miniatura, se mostrará vacía.
+      }
+      _images.insert(0, asset);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('bringToFront error: $e');
+    }
+  }
+
   Future<bool> loadImages() async {
     _isLoading = true;
     notifyListeners();
+    debugPrint('[Gallery] loadImages: inicio');
     try {
       final PermissionState ps = await PhotoManager.requestPermissionExtend(
         requestOption: const PermissionRequestOption(
@@ -51,6 +103,7 @@ class GalleryProvider with ChangeNotifier {
       final albums = await PhotoManager.getAssetPathList(
         type: RequestType.image,
         hasAll: true,
+        filterOption: _buildFilter(),
       );
 
       final bool hasAccess = ps.hasAccess || albums.isNotEmpty;
@@ -66,11 +119,19 @@ class GalleryProvider with ChangeNotifier {
 
         if (albums.isNotEmpty) {
           _currentAlbum = albums.first;
-          _totalCount = await _currentAlbum!.assetCountAsync;
+          _totalCount =
+              await _currentAlbum!.assetCountAsync.timeout(const Duration(seconds: 15));
           await _addRandomBatch();
         } else {
           _currentAlbum = null;
           _totalCount = 0;
+        }
+
+        // Si venimos del widget, ponemos esa foto al frente.
+        final pending = pendingAssetId;
+        pendingAssetId = null;
+        if (pending != null) {
+          await bringToFront(pending);
         }
       } else {
         _currentAlbum = null;
@@ -85,6 +146,7 @@ class GalleryProvider with ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+      debugPrint('[Gallery] loadImages: fin -> ${_images.length} fotos (total=$_totalCount)');
     }
   }
 
@@ -140,7 +202,9 @@ class GalleryProvider with ChangeNotifier {
       for (final range in ranges) {
         final int start = range.first;
         final int end = range.last + 1;
-        var assets = await _currentAlbum!.getAssetListRange(start: start, end: end);
+        var assets = await _currentAlbum!
+            .getAssetListRange(start: start, end: end)
+            .timeout(const Duration(seconds: 15));
         if (pendingIds.isNotEmpty) {
           assets = assets.where((asset) => !pendingIds.contains(asset.id)).toList();
         }
@@ -151,15 +215,25 @@ class GalleryProvider with ChangeNotifier {
       _images.addAll(batch);
       _usedIndexes.addAll(batchIndexes);
       _loadedUniqueIds.addAll(batch.map((asset) => asset.id));
+      notifyListeners(); // Mostrar las fotos de inmediato
+      debugPrint('[Gallery] batch: ${batch.length} fotos (pila=${_images.length}, total=$_totalCount)');
 
-      // Precalcular miniaturas solo para las nuevas
-      for (final asset in batch) {
-        try {
-          final bytes = await asset.thumbnailDataWithSize(const ThumbnailSize(320, 420));
-          _cacheThumbnail(asset.id, bytes);
-        } catch (_) {
-          _cacheThumbnail(asset.id, null);
-        }
+      // Precalcular miniaturas en paralelo (por grupos) para no bloquear la UI.
+      const int chunkSize = 6;
+      for (int i = 0; i < batch.length; i += chunkSize) {
+        final int end = (i + chunkSize) > batch.length ? batch.length : i + chunkSize;
+        final chunk = batch.sublist(i, end);
+        await Future.wait(chunk.map((asset) async {
+          try {
+            final bytes = await asset
+                .thumbnailDataWithSize(const ThumbnailSize(320, 420))
+                .timeout(const Duration(seconds: 10));
+            _cacheThumbnail(asset.id, bytes);
+          } catch (_) {
+            _cacheThumbnail(asset.id, null);
+          }
+        }));
+        notifyListeners();
       }
     } catch (e) {
       debugPrint('_addRandomBatch error: $e');
@@ -191,9 +265,22 @@ class GalleryProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> confirmDeleteAll() async {
-    if (_pendingDeletePhotos.isEmpty) return;
+  /// Elimina definitivamente las fotos en "A eliminar" y devuelve los bytes
+  /// liberados (0 si no se pudo calcular).
+  Future<int> confirmDeleteAll() async {
+    if (_pendingDeletePhotos.isEmpty) return 0;
     try {
+      // Calcular tamaño antes de borrar.
+      int bytes = 0;
+      for (final asset in _pendingDeletePhotos) {
+        try {
+          final file = await asset.originFile;
+          bytes += await file?.length() ?? 0;
+        } catch (_) {
+          // Algunas fotos pueden no exponer archivo; se ignora.
+        }
+      }
+
       final ids = _pendingDeletePhotos.map((a) => a.id).toList();
       final List<String> result = await PhotoManager.editor.deleteWithIds(ids);
       // Liberar las miniaturas de lo borrado.
@@ -206,8 +293,10 @@ class GalleryProvider with ChangeNotifier {
       _pendingDeletePhotos.clear();
       _history.clear(); // Eliminar historial para que no se pueda hacer undo
       notifyListeners();
+      return bytes;
     } catch (e) {
       debugPrint('Error al borrar: $e');
+      return 0;
     }
   }
 

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'home_widget_service.dart';
 import 'providers/gallery_provider.dart';
+import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
+import 'settings_screen.dart';
 import 'theme/app_theme.dart';
 import 'widgets/swipe_deck.dart';
 
@@ -16,18 +20,130 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _showDeleteView = false; // Controla si vemos la galería o la vista de "A eliminar"
   final SwipeDeckController _deckController = SwipeDeckController();
+  String? _widgetPhotoId;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = context.read<GalleryProvider>();
-      // Normalmente las imágenes ya se cargaron desde el botón "Empezar".
-      // Solo cargamos aquí si no hay nada (acceso directo a esta pantalla).
-      if (provider.images.isEmpty && !provider.isLoading) {
-        provider.loadImages();
+      // Cargamos si aún no hay fotos. (No condicionamos a isLoading porque el
+      // provider arranca en isLoading=true y eso impedía la primera carga.)
+      if (provider.images.isEmpty) {
+        final ok = await provider.loadImages();
+        if (!ok && mounted) {
+          _showPermissionDeniedDialog();
+        }
       }
     });
+  }
+
+  void _showPermissionDeniedDialog() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Permiso Denegado'),
+        content: const Text(
+          'No tenemos acceso a tu galería. Habilítalo desde Ajustes de la app para continuar.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await PhotoManager.openSetting();
+            },
+            child: const Text('Abrir ajustes'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Mantiene el widget sincronizado con la foto que está al frente (o la
+  /// limpia si no hay fotos). Se llama en cada build, pero solo actúa cuando
+  /// cambia la tarjeta de arriba.
+  void _updateWidgetPhoto(GalleryProvider provider) {
+    if (provider.images.isEmpty) {
+      if (_widgetPhotoId == 'empty') return;
+      _widgetPhotoId = 'empty';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        HomeWidgetService.syncPhoto(null);
+      });
+      return;
+    }
+    final top = provider.images.first;
+    final bytes = provider.getThumbnailFor(top);
+    // Espera a que la miniatura esté lista antes de enviarla.
+    if (bytes == null) return;
+    if (_widgetPhotoId == top.id) return;
+    _widgetPhotoId = top.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      HomeWidgetService.syncPhoto(bytes, assetId: top.id);
+    });
+  }
+
+  Widget _buildEmptyState(GalleryProvider provider) {
+    final p = AppPalette.of(context);
+    final bool hasFilter = provider.dateFilter != null;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTokens.s24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.photo_library_outlined, size: 48, color: p.textMuted),
+            const SizedBox(height: AppTokens.s16),
+            Text(
+              'No hay fotos para mostrar',
+              style: TextStyle(color: p.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: AppTokens.s8),
+            Text(
+              hasFilter
+                  ? 'Prueba quitando el filtro de fechas.'
+                  : 'No encontramos fotos en esta galería.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: p.textMuted, fontSize: 13),
+            ),
+            const SizedBox(height: AppTokens.s20),
+            Wrap(
+              spacing: AppTokens.s12,
+              runSpacing: AppTokens.s12,
+              alignment: WrapAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => provider.loadImages(),
+                  icon: Icon(Icons.refresh, color: p.ctaFg, size: 18),
+                  label: Text('Recargar', style: TextStyle(color: p.ctaFg, fontWeight: FontWeight.w600)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: p.ctaBg,
+                    elevation: 0,
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                ),
+                if (hasFilter)
+                  OutlinedButton(
+                    onPressed: () => provider.setDateFilter(null),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: p.textPrimary,
+                      side: BorderSide(color: p.hairline, width: 1),
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                    child: const Text('Quitar filtro', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -41,6 +157,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final p = AppPalette.of(context);
     final provider = context.watch<GalleryProvider>();
 
+    _updateWidgetPhoto(provider);
+
     return Scaffold(
       backgroundColor: p.canvas,
       body: SafeArea(
@@ -48,7 +166,9 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const SizedBox(height: AppTokens.s16),
             _buildHeader(context, provider, p),
-            const SizedBox(height: AppTokens.s16),
+            const SizedBox(height: AppTokens.s12),
+            const _DailyGoalBanner(),
+            const SizedBox(height: AppTokens.s12),
             // Contenedor principal: frosted/graphite panel
             Expanded(
               flex: 2,
@@ -98,18 +218,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: _showDeleteView
                           ? _buildDeleteGallery(provider)
-                          : provider.isLoading
-                              ? Center(child: CircularProgressIndicator(color: p.textPrimary))
-                              : provider.images.isEmpty
-                                  ? (provider.isBatchLoading || provider.hasMorePhotosToLoad)
-                                      ? Center(child: CircularProgressIndicator(color: p.textPrimary))
-                                      : Center(
-                                          child: Text(
-                                            '¡No hay más fotos!',
-                                            style: TextStyle(color: p.textSecondary, fontSize: 16),
-                                          ),
-                                        )
-                                  : _buildSwiperArea(provider),
+                          : provider.images.isNotEmpty
+                              ? _buildSwiperArea(provider)
+                              : (provider.isLoading ||
+                                      provider.isBatchLoading ||
+                                      provider.hasMorePhotosToLoad)
+                                  ? Center(child: CircularProgressIndicator(color: p.textPrimary))
+                                  : _buildEmptyState(provider),
                     ),
                   ],
                 ),
@@ -162,6 +277,15 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icons.tune,
             tooltip: 'Seleccionar Álbum',
             onTap: () => _showAlbumSelectionModal(context, provider),
+          ),
+          const SizedBox(width: AppTokens.s8),
+          _GhostIconButton(
+            icon: Icons.settings_outlined,
+            tooltip: 'Configuración',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
+            ),
           ),
         ],
       ),
@@ -244,6 +368,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _handleDeckSwipe(GalleryProvider provider, SwipeDirection direction) {
     final shouldDelete = direction == SwipeDirection.right;
+    final settings = context.read<SettingsProvider>();
+
+    if (settings.hapticsEnabled) {
+      shouldDelete ? HapticFeedback.mediumImpact() : HapticFeedback.selectionClick();
+    }
+    if (settings.soundEnabled) {
+      SystemSound.play(SystemSoundType.click);
+    }
+    settings.recordSwipe();
+
     provider.handleSwipe(0, shouldDelete);
     setState(() {});
     if (shouldDelete) {
@@ -254,14 +388,36 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  static const List<String> _monthsEs = [
+    'enero',
+    'febrero',
+    'marzo',
+    'abril',
+    'mayo',
+    'junio',
+    'julio',
+    'agosto',
+    'septiembre',
+    'octubre',
+    'noviembre',
+    'diciembre',
+  ];
+
+  String _formatDateLong(DateTime d) {
+    final month = _monthsEs[(d.month - 1).clamp(0, 11)];
+    return '${d.day} de $month ${d.year}';
+  }
+
   Widget _buildSwipeCard(GalleryProvider provider, AssetEntity asset, bool isTop) {
     final p = AppPalette.of(context);
     final bytes = provider.getThumbnailFor(asset);
 
     String assetLabel = asset.title ?? asset.id;
     String assetPath = asset.relativePath ?? '';
-    String assetDate =
-        '${asset.createDateTime.year}-${asset.createDateTime.month.toString().padLeft(2, '0')}-${asset.createDateTime.day.toString().padLeft(2, '0')}';
+    final DateTime assetDateTime = asset.createDateTime;
+    String assetDateLong = _formatDateLong(assetDateTime);
+    String assetDateIso =
+        '${assetDateTime.year}-${assetDateTime.month.toString().padLeft(2, '0')}-${assetDateTime.day.toString().padLeft(2, '0')}';
 
     return Container(
       decoration: BoxDecoration(
@@ -274,7 +430,15 @@ class _HomeScreenState extends State<HomeScreen> {
         fit: StackFit.expand,
         children: [
           if (bytes != null)
-            Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true),
+            _ZoomableImage(bytes: bytes, enabled: isTop),
+          if (bytes == null && isTop)
+            Center(
+              child: SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(strokeWidth: 2, color: p.textSecondary),
+              ),
+            ),
           if (isTop)
             Positioned(
               top: 10,
@@ -286,7 +450,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: IconButton(
                   icon: Icon(Icons.info_outline, color: p.textPrimary, size: 24),
                   tooltip: 'Ver metadata',
-                  onPressed: () => _showMetadataDialog(context, assetLabel, assetPath, assetDate),
+                  onPressed: () =>
+                      _showMetadataDialog(context, assetLabel, assetPath, assetDateLong, assetDateIso),
                 ),
               ),
             ),
@@ -381,7 +546,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showMetadataDialog(BuildContext context, String label, String path, String date) {
+  void _showMetadataDialog(
+    BuildContext context,
+    String label,
+    String path,
+    String dateLong,
+    String dateIso,
+  ) {
     final p = AppPalette.of(context);
     showDialog(
       context: context,
@@ -399,7 +570,12 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 6),
             Text('Ubicación: $path', style: TextStyle(fontSize: 15, color: p.textPrimary)),
             const SizedBox(height: 6),
-            Text('Fecha: $date', style: TextStyle(fontSize: 15, color: p.textPrimary)),
+            Text('Fecha: $dateLong', style: TextStyle(fontSize: 15, color: p.textPrimary)),
+            const SizedBox(height: 2),
+            Padding(
+              padding: const EdgeInsets.only(left: 48),
+              child: Text('($dateIso)', style: TextStyle(fontSize: 13, color: p.textMuted)),
+            ),
           ],
         ),
         actionsAlignment: MainAxisAlignment.center,
@@ -462,11 +638,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 50,
                   child: ElevatedButton.icon(
                     onPressed: () async {
+                      final settings = context.read<SettingsProvider>();
+                      final count = provider.pendingDeletePhotos.length;
                       Navigator.pop(context);
-                      await provider.confirmDeleteAll();
-                      setState(() {
-                        _showDeleteView = false;
-                      });
+                      final int bytes = await provider.confirmDeleteAll();
+                      await settings.recordDeletion(count: count, bytes: bytes);
+                      if (mounted) {
+                        setState(() {
+                          _showDeleteView = false;
+                        });
+                      }
                     },
                     icon: const Icon(Icons.delete_outline, color: Colors.white, size: 20),
                     label: const Text(
@@ -698,6 +879,100 @@ class _GhostIconButton extends StatelessWidget {
         icon: Icon(icon, color: p.textPrimary, size: 22),
         tooltip: tooltip,
         onPressed: onTap,
+      ),
+    );
+  }
+}
+
+/// Imagen que se agranda (lupa) mientras mantienes presionada la tarjeta.
+class _ZoomableImage extends StatefulWidget {
+  final Uint8List bytes;
+  final bool enabled;
+
+  const _ZoomableImage({required this.bytes, required this.enabled});
+
+  @override
+  State<_ZoomableImage> createState() => _ZoomableImageState();
+}
+
+class _ZoomableImageState extends State<_ZoomableImage> {
+  bool _zoomed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onLongPressStart: widget.enabled ? (_) => setState(() => _zoomed = true) : null,
+      onLongPressEnd: widget.enabled ? (_) => setState(() => _zoomed = false) : null,
+      onLongPressCancel: widget.enabled ? () => setState(() => _zoomed = false) : null,
+      child: AnimatedScale(
+        scale: _zoomed ? 1.8 : 1.0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        child: Image.memory(
+          widget.bytes,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+        ),
+      ),
+    );
+  }
+}
+
+/// Banner de meta diaria: "Revisa N fotos hoy".
+class _DailyGoalBanner extends StatelessWidget {
+  const _DailyGoalBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final settings = context.watch<SettingsProvider>();
+    final done = settings.goalReached;
+    final text = done
+        ? '¡Meta del día cumplida!'
+        : 'Revisa ${settings.dailyGoal} fotos hoy';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppTokens.s16),
+      padding: const EdgeInsets.symmetric(horizontal: AppTokens.s16, vertical: AppTokens.s12),
+      decoration: BoxDecoration(
+        color: p.panel,
+        borderRadius: BorderRadius.circular(AppTokens.radiusCard),
+        border: Border.all(color: p.hairline, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                done ? Icons.check_circle_outline : Icons.wb_sunny_outlined,
+                color: p.textPrimary,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(color: p.textPrimary, fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+              ),
+              Text(
+                '${settings.reviewedToday}/${settings.dailyGoal}',
+                style: TextStyle(color: p.textMuted, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTokens.s8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppTokens.radiusButton),
+            child: LinearProgressIndicator(
+              value: settings.dailyProgress,
+              minHeight: 6,
+              backgroundColor: p.hairline,
+              valueColor: AlwaysStoppedAnimation<Color>(p.ctaBg),
+            ),
+          ),
+        ],
       ),
     );
   }

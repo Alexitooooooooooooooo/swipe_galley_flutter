@@ -3,6 +3,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:provider/provider.dart';
 import 'home_screen.dart';
 import 'providers/gallery_provider.dart';
+import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/app_theme.dart';
 
@@ -28,6 +29,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     setState(() { isLoading = false; });
 
     if (canContinue) {
+      // Marca el onboarding como completado: en próximos arranques se entra
+      // directo a la galería.
+      await context.read<SettingsProvider>().completeOnboarding();
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),
