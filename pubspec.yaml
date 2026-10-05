@@ -1,7 +1,7 @@
 name: swipegallery
 description: "Organiza tu galería de manera rápida y divertida."
 publish_to: 'none'
-version: 0.2.0+1
+version: 0.3.0+1
 
 environment:
   sdk: ^3.11.3
@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   home_widget: ^0.10.0
+  permission_handler: ^11.3.1
   photo_manager: ^3.9.0
   provider: ^6.1.1
   shared_preferences: ^2.3.2

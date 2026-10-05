@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'providers/gallery_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
 import 'theme/app_theme.dart';
+import 'tutorial_screen.dart';
 import 'welcome_screen.dart';
 
 String formatBytes(int bytes) {
@@ -79,9 +83,27 @@ class SettingsScreen extends StatelessWidget {
             ],
           ),
           _SettingsCard(
+            title: 'Tutorial',
+            children: [
+              _ActionRow(
+                icon: Icons.school_outlined,
+                title: 'Aprende los gestos',
+                subtitle: 'Derecha elimina, izquierda conserva, arriba mueve a álbum.',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TutorialScreen()),
+                ),
+              ),
+            ],
+          ),
+          _SettingsCard(
             title: 'Fotos',
             children: [
               _DateFilterRow(gallery: gallery),
+              const SizedBox(height: AppTokens.s16),
+              _AlbumNameRow(settings: settings),
+              const SizedBox(height: AppTokens.s16),
+              const _WritePermissionRow(),
             ],
           ),
           _SettingsCard(
@@ -544,6 +566,226 @@ class _GoalRow extends StatelessWidget {
           child: Icon(icon, color: p.textPrimary, size: 20),
         ),
       ),
+    );
+  }
+}
+
+class _AlbumNameRow extends StatelessWidget {
+  final SettingsProvider settings;
+
+  const _AlbumNameRow({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Álbum destino',
+            style: TextStyle(color: p.textPrimary, fontSize: 16, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        Text('A dónde se mueven las fotos con "Mover a álbum".',
+            style: TextStyle(color: p.textMuted, fontSize: 13)),
+        const SizedBox(height: AppTokens.s12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: p.panelFrost,
+            borderRadius: BorderRadius.circular(AppTokens.radiusUi),
+            border: Border.all(color: p.hairline, width: 1),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.folder_outlined, color: p.textSecondary, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(settings.moveAlbum,
+                    style: TextStyle(color: p.textPrimary, fontSize: 14)),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppTokens.s12),
+        SizedBox(
+          width: double.infinity,
+          height: 46,
+          child: OutlinedButton(
+            onPressed: () => _editAlbumName(context),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: p.textPrimary,
+              side: BorderSide(color: p.hairline, width: 1),
+              shape: const StadiumBorder(),
+            ),
+            child: const Text('Cambiar nombre', style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editAlbumName(BuildContext context) async {
+    final p = AppPalette.of(context);
+    final controller = TextEditingController(text: settings.moveAlbum);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Nombre del álbum',
+            style: TextStyle(fontWeight: FontWeight.w600, color: p.textPrimary)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'swipe-album'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (result != null && result.trim().isNotEmpty) {
+      await settings.setMoveAlbum(result);
+      if (context.mounted) {
+        context.read<GalleryProvider>().setHiddenAlbum(result.trim());
+      }
+    }
+    controller.dispose();
+  }
+}
+
+class _ActionRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppTokens.radiusUi),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Icon(icon, color: p.textSecondary, size: 22),
+            const SizedBox(width: AppTokens.s12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(color: p.textPrimary, fontSize: 16, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(color: p.textMuted, fontSize: 13)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: p.textMuted, size: 22),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WritePermissionRow extends StatefulWidget {
+  const _WritePermissionRow();
+
+  @override
+  State<_WritePermissionRow> createState() => _WritePermissionRowState();
+}
+
+class _WritePermissionRowState extends State<_WritePermissionRow> {
+  bool? _granted;
+
+  bool get _supported => Platform.isAndroid;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    if (!_supported) {
+      if (mounted) setState(() => _granted = null);
+      return;
+    }
+    try {
+      final g = await Permission.manageExternalStorage.isGranted;
+      if (mounted) setState(() => _granted = g);
+    } catch (_) {
+      if (mounted) setState(() => _granted = false);
+    }
+  }
+
+  Future<void> _request() async {
+    if (!_supported) return;
+    try {
+      await Permission.manageExternalStorage.request();
+    } catch (_) {
+      // Ignoramos; se revalida abajo.
+    }
+    await _check();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
+    final granted = _granted ?? false;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Permiso de escritura',
+                style: TextStyle(color: p.textPrimary, fontSize: 16, fontWeight: FontWeight.w500)),
+            const Spacer(),
+            Icon(
+              granted ? Icons.check_circle : Icons.error_outline,
+              color: granted ? p.textPrimary : p.danger,
+              size: 20,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          !_supported
+              ? 'Solo disponible en Android.'
+              : granted
+                  ? 'Activado: las fotos se mueven sin pedir permiso cada vez.'
+                  : 'Desactivado: Android pedirá permiso en cada movimiento. Actívalo para no repetirlo.',
+          style: TextStyle(color: p.textMuted, fontSize: 13, height: 1.35),
+        ),
+        if (_supported && !granted) ...[
+          const SizedBox(height: AppTokens.s12),
+          OutlinedButton(
+            onPressed: _request,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: p.textPrimary,
+              side: BorderSide(color: p.hairline, width: 1),
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text('Conceder permiso permanente',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ],
     );
   }
 }

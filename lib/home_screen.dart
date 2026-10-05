@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'home_widget_service.dart';
+import 'native_mover.dart';
 import 'providers/gallery_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/theme_provider.dart';
@@ -367,16 +371,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleDeckSwipe(GalleryProvider provider, SwipeDirection direction) {
-    final shouldDelete = direction == SwipeDirection.right;
     final settings = context.read<SettingsProvider>();
+    final bool isUp = direction == SwipeDirection.up;
+    final bool shouldDelete = direction == SwipeDirection.right;
 
     if (settings.hapticsEnabled) {
-      shouldDelete ? HapticFeedback.mediumImpact() : HapticFeedback.selectionClick();
+      (shouldDelete || isUp) ? HapticFeedback.mediumImpact() : HapticFeedback.selectionClick();
     }
     if (settings.soundEnabled) {
       SystemSound.play(SystemSoundType.click);
     }
     settings.recordSwipe();
+
+    if (isUp) {
+      _moveCurrentUp(provider, settings);
+      setState(() {});
+      return;
+    }
 
     provider.handleSwipe(0, shouldDelete);
     setState(() {});
@@ -386,6 +397,46 @@ class _HomeScreenState extends State<HomeScreen> {
     if (provider.images.length == 5) {
       provider.loadMoreIfNeeded();
     }
+  }
+
+  Future<void> _moveCurrentUp(GalleryProvider provider, SettingsProvider settings) async {
+    if (provider.images.isEmpty) return;
+    final asset = provider.images.first;
+    final bool hasAccess = Platform.isAndroid ? await NativeMover.hasAllFilesAccess() : true;
+    final ok = await provider.moveToAlbum([asset], albumName: settings.moveAlbum);
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Movida a «${settings.moveAlbum}»' : 'No se pudo mover'),
+        duration: const Duration(seconds: 3),
+        action: (!hasAccess && Platform.isAndroid)
+            ? SnackBarAction(
+                label: 'Sin permiso diario',
+                onPressed: () => Permission.manageExternalStorage.request(),
+              )
+            : null,
+      ),
+    );
+  }
+
+  Future<void> _movePendingToAlbum(GalleryProvider provider) async {
+    if (provider.pendingDeletePhotos.isEmpty) return;
+    final settings = context.read<SettingsProvider>();
+    final assets = List<AssetEntity>.from(provider.pendingDeletePhotos);
+    final n = assets.length;
+    final ok = await provider.moveToAlbum(assets, albumName: settings.moveAlbum);
+    if (!mounted) return;
+    setState(() {
+      _showDeleteView = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Movidas $n a «${settings.moveAlbum}»' : 'No se pudieron mover'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   static const List<String> _monthsEs = [
@@ -524,22 +575,43 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         Padding(
           padding: const EdgeInsets.all(AppTokens.s16),
-          child: SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: () => _showConfirmDeleteDialog(context, provider),
-              icon: const Icon(Icons.delete_outline, color: Colors.white, size: 22),
-              label: const Text(
-                'Eliminar',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+          child: Column(
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: () => _movePendingToAlbum(provider),
+                  icon: Icon(Icons.drive_file_move_outline, color: p.textPrimary, size: 22),
+                  label: Text(
+                    'Mover a álbum',
+                    style: TextStyle(color: p.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: p.hairline, width: 1),
+                    shape: const StadiumBorder(),
+                  ),
+                ),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: p.danger,
-                elevation: 0,
-                shape: const StadiumBorder(),
+              const SizedBox(height: AppTokens.s12),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: () => _showConfirmDeleteDialog(context, provider),
+                  icon: const Icon(Icons.delete_outline, color: Colors.white, size: 22),
+                  label: const Text(
+                    'Eliminar',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: p.danger,
+                    elevation: 0,
+                    shape: const StadiumBorder(),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ],

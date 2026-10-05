@@ -8,6 +8,23 @@ import 'package:home_widget/home_widget.dart';
 class HomeWidgetService {
   // Solo el nombre de la clase: el plugin lo resuelve contra el applicationId.
   static const String _androidProvider = 'DailyWidgetProvider';
+  static const String _statsProvider = 'StatsWidgetProvider';
+
+  /// Guarda las estadísticas (eliminadas/espacio liberado) y refresca el widget.
+  static Future<void> syncStatsWidget({
+    required int deleted,
+    required int freed,
+    required int reviewed,
+  }) async {
+    try {
+      await HomeWidget.saveWidgetData<int>('stg_deleted', deleted);
+      await HomeWidget.saveWidgetData<int>('stg_freed', freed);
+      await HomeWidget.saveWidgetData<int>('stg_reviewed', reviewed);
+      await HomeWidget.updateWidget(androidName: _statsProvider);
+    } catch (e) {
+      debugPrint('HomeWidgetService.syncStatsWidget error: $e');
+    }
+  }
 
   /// Guarda la meta/avance diario y refresca el widget.
   static Future<void> syncStats({

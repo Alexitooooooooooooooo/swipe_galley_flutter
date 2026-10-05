@@ -9,6 +9,7 @@ class SettingsProvider with ChangeNotifier {
   static const String _kSound = 'pref_sound';
   static const String _kDailyGoal = 'pref_daily_goal';
   static const String _kOnboarding = 'pref_onboarding_done';
+  static const String _kMoveAlbum = 'pref_move_album';
   static const String _kReviewedToday = 'stat_reviewed_today';
   static const String _kGoalDate = 'stat_goal_date';
   static const String _kTotalReviewed = 'stat_total_reviewed';
@@ -19,6 +20,7 @@ class SettingsProvider with ChangeNotifier {
   bool _sound = true;
   int _dailyGoal = 10;
   bool _onboardingDone = false;
+  String _moveAlbum = 'swipe-album';
 
   int _reviewedToday = 0;
   int _totalReviewed = 0;
@@ -30,6 +32,7 @@ class SettingsProvider with ChangeNotifier {
   bool get soundEnabled => _sound;
   int get dailyGoal => _dailyGoal;
   bool get onboardingDone => _onboardingDone;
+  String get moveAlbum => _moveAlbum;
 
   /// Conteo de hoy limitado a la meta (nunca muestra más que el objetivo).
   int get reviewedToday => _reviewedToday > _dailyGoal ? _dailyGoal : _reviewedToday;
@@ -53,6 +56,7 @@ class SettingsProvider with ChangeNotifier {
       _sound = prefs.getBool(_kSound) ?? true;
       _dailyGoal = prefs.getInt(_kDailyGoal) ?? 10;
       _onboardingDone = prefs.getBool(_kOnboarding) ?? false;
+      _moveAlbum = prefs.getString(_kMoveAlbum) ?? 'swipe-album';
       _totalReviewed = prefs.getInt(_kTotalReviewed) ?? 0;
       _totalDeleted = prefs.getInt(_kTotalDeleted) ?? 0;
       _freedBytes = prefs.getInt(_kFreedBytes) ?? 0;
@@ -99,6 +103,14 @@ class SettingsProvider with ChangeNotifier {
     await _prefs((p) => p.setBool(_kOnboarding, false));
   }
 
+  Future<void> setMoveAlbum(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    _moveAlbum = trimmed;
+    notifyListeners();
+    await _prefs((p) => p.setString(_kMoveAlbum, trimmed));
+  }
+
   Future<void> recordSwipe() async {
     final today = _todayKey();
     if (_goalDate != today) {
@@ -128,6 +140,7 @@ class SettingsProvider with ChangeNotifier {
       await p.setInt(_kTotalDeleted, _totalDeleted);
       await p.setInt(_kFreedBytes, _freedBytes);
     });
+    await _syncWidget();
   }
 
   Future<void> resetStats() async {
@@ -153,6 +166,11 @@ class SettingsProvider with ChangeNotifier {
       goal: _dailyGoal,
       done: reviewedToday,
       date: _todayKey(),
+    );
+    await HomeWidgetService.syncStatsWidget(
+      deleted: _totalDeleted,
+      freed: _freedBytes,
+      reviewed: _totalReviewed,
     );
   }
 

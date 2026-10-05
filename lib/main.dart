@@ -16,6 +16,9 @@ Future<void> main() async {
   final galleryProvider = GalleryProvider();
   await Future.wait([themeProvider.load(), settingsProvider.load()]);
 
+  // El álbum destino se oculta del feed por defecto.
+  galleryProvider.setHiddenAlbum(settingsProvider.moveAlbum);
+
   // ¿Se abrió tocando el widget? Guardamos la foto a mostrar al frente.
   final initialAssetId = await HomeWidgetService.initialAssetId();
   if (initialAssetId != null) {

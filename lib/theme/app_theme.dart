@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Versión visible en la app (mantener en sync con pubspec.yaml).
-const String kAppVersion = '0.2.0';
+const String kAppVersion = '0.3.0';
 
 /// Design tokens extracted from DESIGN.md ("Dimension" style reference).
 /// Dusk-lit workspace with frosted glass panels.

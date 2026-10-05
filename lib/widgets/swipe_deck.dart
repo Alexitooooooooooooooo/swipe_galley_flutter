@@ -1,7 +1,7 @@
 import 'dart:ui' show ImageFilter, TileMode;
 import 'package:flutter/material.dart';
 
-enum SwipeDirection { left, right }
+enum SwipeDirection { left, right, up }
 
 /// Controla un [SwipeDeck] desde afuera (p. ej. los botones de acción).
 class SwipeDeckController extends ChangeNotifier {
@@ -156,6 +156,23 @@ class _SwipeDeckState<T> extends State<SwipeDeck<T>> with SingleTickerProviderSt
     }
   }
 
+  void _onVerticalDragUpdate(DragUpdateDetails details) {
+    if (_isAnimating || _flyingOut || widget.items.isEmpty) return;
+    // Solo eje vertical (hacia arriba = mover a álbum).
+    setState(() => _drag = Offset(0, _drag.dy + details.delta.dy));
+  }
+
+  void _onVerticalDragEnd(DragEndDetails details) {
+    if (_isAnimating || _flyingOut || widget.items.isEmpty) return;
+    final double velocityY = details.velocity.pixelsPerSecond.dy;
+    final double threshold = _cardSize.height * widget.swipeThreshold;
+    if (_drag.dy < -threshold || velocityY < -900) {
+      _flyOut(SwipeDirection.up);
+    } else {
+      _snapBack();
+    }
+  }
+
   void _snapBack() {
     _offsetAnimation = Tween<Offset>(begin: _drag, end: Offset.zero)
         .animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic));
@@ -166,8 +183,15 @@ class _SwipeDeckState<T> extends State<SwipeDeck<T>> with SingleTickerProviderSt
     if (_flyingOut) return;
     _flyingOut = true;
     final double width = _cardSize.width == 0 ? 400.0 : _cardSize.width;
-    final double endX = direction == SwipeDirection.right ? width * 1.8 : -width * 1.8;
-    final Offset end = Offset(endX, _drag.dy);
+    final double height = _cardSize.height == 0 ? 600.0 : _cardSize.height;
+    late final Offset end;
+    if (direction == SwipeDirection.right) {
+      end = Offset(width * 1.8, _drag.dy);
+    } else if (direction == SwipeDirection.left) {
+      end = Offset(-width * 1.8, _drag.dy);
+    } else {
+      end = Offset(_drag.dx, -height * 1.8);
+    }
     _offsetAnimation = Tween<Offset>(begin: _drag, end: end)
         .animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
     _animationController.forward(from: 0).whenComplete(() {
@@ -275,6 +299,8 @@ class _SwipeDeckState<T> extends State<SwipeDeck<T>> with SingleTickerProviderSt
           behavior: HitTestBehavior.opaque,
           onHorizontalDragUpdate: _onHorizontalDragUpdate,
           onHorizontalDragEnd: _onHorizontalDragEnd,
+          onVerticalDragUpdate: _onVerticalDragUpdate,
+          onVerticalDragEnd: _onVerticalDragEnd,
           child: Stack(clipBehavior: Clip.none, children: children),
         );
       },

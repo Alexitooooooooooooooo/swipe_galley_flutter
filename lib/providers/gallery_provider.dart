@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
+import '../native_mover.dart';
 
 class GalleryProvider with ChangeNotifier {
   static const int _maxThumbnailCache = 80;
@@ -23,6 +25,9 @@ class GalleryProvider with ChangeNotifier {
 
   /// Si la app se abrió desde el widget, esta foto debe quedar al frente.
   String? pendingAssetId;
+
+  /// Nombre de álbum que se oculta del feed por defecto (All/Recientes).
+  String _hiddenAlbum = '';
 
   List<AssetEntity> get images => _images;
   List<AssetEntity> get pendingDeletePhotos => _pendingDeletePhotos;
@@ -57,6 +62,20 @@ class GalleryProvider with ChangeNotifier {
   Future<void> setDateFilter(DateTimeRange? range) async {
     _dateFilter = range;
     await loadImages();
+  }
+
+  /// Define qué álbum se oculta del feed por defecto (no recarga por sí solo).
+  void setHiddenAlbum(String name) {
+    _hiddenAlbum = name;
+  }
+
+  bool _isHidden(AssetEntity asset) {
+    if (_hiddenAlbum.isEmpty) return false;
+    final path = asset.relativePath ?? '';
+    if (path.isEmpty) return false;
+    return path == _hiddenAlbum ||
+        path.endsWith('/$_hiddenAlbum') ||
+        path.contains('/$_hiddenAlbum/');
   }
 
   /// Pone la foto [assetId] al frente de la pila (p. ej. al tocar el widget).
@@ -208,6 +227,10 @@ class GalleryProvider with ChangeNotifier {
         if (pendingIds.isNotEmpty) {
           assets = assets.where((asset) => !pendingIds.contains(asset.id)).toList();
         }
+        // Ocultar el álbum destino del feed por defecto (solo en "All").
+        if (_currentAlbum?.isAll == true && _hiddenAlbum.isNotEmpty) {
+          assets = assets.where((asset) => !_isHidden(asset)).toList();
+        }
         batch.addAll(assets);
       }
 
@@ -300,12 +323,73 @@ class GalleryProvider with ChangeNotifier {
     }
   }
 
+  /// Mueve [assets] al álbum indicado (por defecto `swipe-album`).
+  ///
+  /// En Android usa la carpeta de MediaStore (`Pictures/<album>`); en el resto
+  /// de plataformas crea el álbum y copia los assets. Devuelve `true` si se
+  /// movieron correctamente. Los assets movidos se quitan de la pila actual.
+  Future<bool> moveToAlbum(
+    List<AssetEntity> assets, {
+    String albumName = 'swipe-album',
+  }) async {
+    if (assets.isEmpty) return false;
+    final ids = assets.map((a) => a.id).toSet();
+
+    // Quitar de la UI de inmediato: la pila avanza sin esperar al sistema.
+    _images.removeWhere((a) => ids.contains(a.id));
+    _pendingDeletePhotos.removeWhere((a) => ids.contains(a.id));
+    _history.removeWhere((h) => ids.contains(h.asset.id));
+    for (final id in ids) {
+      _thumbnailById.remove(id);
+    }
+    notifyListeners();
+
+    try {
+      bool ok = false;
+      final target = 'Pictures/$albumName';
+      if (Platform.isAndroid) {
+        final ids = assets.map((a) => a.id).toList();
+        // Intentamos siempre el move nativo primero: si hay "All files access"
+        // funciona sin diálogo. Si no, cae al plugin (que sí pide permiso).
+        final nativeOk = await NativeMover.moveToAlbum(ids, target);
+        final allFiles = await NativeMover.hasAllFilesAccess();
+        debugPrint('[Gallery] move native=$nativeOk allFilesAccess=$allFiles');
+        if (nativeOk) {
+          ok = true;
+        } else {
+          ok = await PhotoManager.editor.android.moveAssetsToPath(
+            entities: assets,
+            targetPath: target,
+          );
+        }
+      } else {
+        final pathEntity = await _ensureAlbum(albumName);
+        if (pathEntity == null) return false;
+        for (final asset in assets) {
+          await PhotoManager.editor.copyAssetToPath(asset: asset, pathEntity: pathEntity);
+        }
+        ok = true;
+      }
+      debugPrint('[Gallery] moveToAlbum($albumName): $ok (${assets.length})');
+      return ok;
+    } catch (e) {
+      debugPrint('moveToAlbum error: $e');
+      return false;
+    }
+  }
+
+  Future<AssetPathEntity?> _ensureAlbum(String name) async {
+    final albums = await PhotoManager.getAssetPathList(type: RequestType.image);
+    for (final album in albums) {
+      if (album.name == name) return album;
+    }
+    return PhotoManager.editor.darwin.createAlbum(name);
+  }
+
   void removeFromPending(int index) {
     _pendingDeletePhotos.removeAt(index);
     notifyListeners();
-  }
-
-  /// Devuelve la dirección de la acción deshecha: `true` = fue a eliminar
+  }  /// Devuelve la dirección de la acción deshecha: `true` = fue a eliminar
   /// (swipe derecha), `false` = fue conservar (swipe izquierda), `null` = no
   /// había nada que deshacer.
   bool? undoLastAction() {
