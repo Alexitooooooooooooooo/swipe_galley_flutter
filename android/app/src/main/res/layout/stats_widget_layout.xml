@@ -6,7 +6,7 @@
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:background="@drawable/widget_background"
-    android:padding="12dp">
+    android:padding="10dp">
 
     <LinearLayout
         android:layout_width="0dp"
@@ -15,45 +15,38 @@
         android:orientation="vertical">
 
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="APROVECHA TU ESPACIO"
-            android:textColor="#B2B2B2"
-            android:textSize="10sp"
-            android:letterSpacing="0.08" />
-
-        <TextView
             android:id="@+id/stats_freed"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:maxLines="1"
             android:text="0 B liberados"
             android:textColor="#FFFFFF"
             android:textStyle="bold"
-            android:textSize="22sp" />
+            android:textSize="20sp" />
 
         <TextView
-            android:id="@+id/stats_deleted"
+            android:id="@+id/stats_sub"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="0 fotos eliminadas"
+            android:layout_marginTop="1dp"
+            android:maxLines="1"
+            android:text="Aprovecha tu espacio"
             android:textColor="#C2C2C2"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/stats_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="10dp"
+        android:layout_marginStart="8dp"
         android:background="@drawable/widget_button_bg"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="7dp"
         android:text="Limpiar"
         android:textColor="#161616"
         android:textStyle="bold"
-        android:textSize="13sp" />
+        android:textSize="12sp" />
 </LinearLayout>

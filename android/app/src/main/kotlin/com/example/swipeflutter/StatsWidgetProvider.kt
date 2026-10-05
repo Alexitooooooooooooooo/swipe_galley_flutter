@@ -23,10 +23,8 @@ class StatsWidgetProvider : HomeWidgetProvider() {
 
             val views = RemoteViews(context.packageName, R.layout.stats_widget_layout).apply {
                 setTextViewText(R.id.stats_freed, "${formatBytes(freed)} liberados")
-                setTextViewText(
-                    R.id.stats_deleted,
-                    if (deleted == 1) "1 foto eliminada" else "$deleted fotos eliminadas",
-                )
+                val deletedText = if (deleted == 1) "1 foto eliminada" else "$deleted fotos eliminadas"
+                setTextViewText(R.id.stats_sub, "Aprovecha tu espacio · $deletedText")
                 setOnClickPendingIntent(R.id.stats_container, launch)
                 setOnClickPendingIntent(R.id.stats_button, launch)
             }
